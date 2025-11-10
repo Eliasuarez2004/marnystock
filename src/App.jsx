@@ -4,6 +4,8 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Products from './pages/Products';
 import Clients from './pages/Clients';
+import Invoices from './pages/Invoices'
+import CreateInvoice from './pages/CreateInvoice';
 import NotFound from './pages/NotFound';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
@@ -43,7 +45,26 @@ function App() {
           </ProtectedRoute>
         } 
       />
-
+      <Route
+        path="/facturas"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Invoices />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/facturas/crear"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <CreateInvoice />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
