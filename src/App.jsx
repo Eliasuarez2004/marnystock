@@ -2,8 +2,10 @@
 import { Routes, Route } from 'react-router-dom';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import Products from './pages/Products';
 import NotFound from './pages/NotFound';
 import ProtectedRoute from './components/ProtectedRoute';
+import Layout from './components/Layout';
 
 function App() {
   return (
@@ -14,11 +16,22 @@ function App() {
         path="/" 
         element={
           <ProtectedRoute>
-            <Dashboard />
+            <Layout>
+              <Dashboard />
+            </Layout>
           </ProtectedRoute>
         } 
       />
-      {/* Aquí agregaríamos más rutas protegidas en el futuro */}
+      <Route 
+        path="/productos" 
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Products />
+            </Layout>
+          </ProtectedRoute>
+        } 
+      />
 
       <Route path="*" element={<NotFound />} />
     </Routes>
