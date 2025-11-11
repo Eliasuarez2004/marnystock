@@ -22,7 +22,8 @@ const Clients = () => {
 
   const filteredClients = clients.filter(client => 
         client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        client.email.toLowerCase().includes(searchTerm.toLowerCase())
+        client.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        client.rtn.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
   const handleOpenModal = (client = null) => {
@@ -83,7 +84,7 @@ const Clients = () => {
             <div className="mb-4">
                 <input 
                     type="text"
-                    placeholder="Buscar por nombre o email..."
+                    placeholder="Buscar por Nombre, RTN o Email..."
                     className="w-full p-2 border rounded-md"
                     value={searchTerm}
                     onChange={e => setSearchTerm(e.target.value)}
@@ -98,6 +99,7 @@ const Clients = () => {
             <thead className="text-left bg-gray-100">
               <tr>
                 <th className="p-3">Nombre</th>
+                <th className="p-3">RTN</th>
                 <th className="p-3">Email</th>
                 <th className="p-3">Teléfono</th>
                 <th className="p-3">Acciones</th>
@@ -107,6 +109,7 @@ const Clients = () => {
               {filteredClients.map(client => (
                 <tr key={client.id} className="border-b hover:bg-gray-50">
                   <td className="p-3">{client.name}</td>
+                  <td className="p-3 font-mono">{client.rtn || 'N/A'}</td>
                   <td className="p-3">{client.email}</td>
                   <td className="p-3">{client.phone}</td>
                   <td className="p-3 flex gap-2">

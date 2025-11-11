@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 const ClientFormModal = ({ isOpen, onClose, onSave, clientToEdit }) => {
   const [client, setClient] = useState({
     name: '',
+    rtn: '',
     email: '',
     phone: '',
     address: '',
@@ -14,7 +15,7 @@ const ClientFormModal = ({ isOpen, onClose, onSave, clientToEdit }) => {
     if (clientToEdit) {
       setClient(clientToEdit);
     } else {
-      setClient({ name: '', email: '', phone: '', address: '' });
+      setClient({ name: '', rtn:'', email: '', phone: '', address: '' });
     }
   }, [clientToEdit, isOpen]);
 
@@ -46,6 +47,7 @@ const ClientFormModal = ({ isOpen, onClose, onSave, clientToEdit }) => {
         </h2>
         <form onSubmit={handleSubmit}>
           <input type="text" name="name" value={client.name} onChange={handleChange} placeholder="Nombre Completo" required className="w-full p-2 mb-3 border rounded"/>
+          <input type="text" name="rtn" value={client.rtn} onChange={handleChange} placeholder="RTN (opcional)" className="w-full p-2 mb-3 border rounded"/>
           <input type="email" name="email" value={client.email} onChange={handleChange} placeholder="Correo Electrónico" required className="w-full p-2 mb-3 border rounded"/>
           <input type="tel" name="phone" value={client.phone} onChange={handleChange} placeholder="Teléfono" required className="w-full p-2 mb-3 border rounded"/>
           <textarea name="address" value={client.address} onChange={handleChange} placeholder="Dirección" required className="w-full p-2 mb-4 border rounded"></textarea>
