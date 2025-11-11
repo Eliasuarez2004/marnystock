@@ -2,12 +2,15 @@
 import React, { useState, useEffect } from 'react';
 import ClientFormModal from '../components/ClientFormModal';
 import { addClient, getClients, updateClient, deleteClient } from '../firebase/clientService';
+import Swal from 'sweetalert2';
+import AnimatedPage from '../components/AnimatedPage';
 
 const Clients = () => {
   const [clients, setClients] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [clientToEdit, setClientToEdit] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     const unsubscribe = getClients((fetchedClients) => {
@@ -16,6 +19,11 @@ const Clients = () => {
     });
     return () => unsubscribe();
   }, []);
+
+  const filteredClients = clients.filter(client => 
+        client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        client.email.toLowerCase().includes(searchTerm.toLowerCase())
+    );
 
   const handleOpenModal = (client = null) => {
     setClientToEdit(client);
@@ -36,17 +44,30 @@ const Clients = () => {
   };
 
   const handleDeleteClient = async (clientId, clientName) => {
-    if (window.confirm(`¿Estás seguro de que quieres eliminar a "${clientName}"?`)) {
-      try {
-        await deleteClient(clientId);
-      } catch (error) {
-        console.error("Error al eliminar el cliente:", error);
-        alert("No se pudo eliminar el cliente.");
-      }
-    }
-  };
+    Swal.fire({ // REEMPLAZADO
+        title: '¿Estás seguro?',
+        text: `No podrás revertir la eliminación de "${clientName}"!`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#CC0033',
+        cancelButtonColor: '#6b7280',
+        confirmButtonText: 'Sí, eliminar!',
+        cancelButtonText: 'Cancelar'
+    }).then(async (result) => {
+        if (result.isConfirmed) {
+            try {
+                await deleteClient(clientId);
+                Swal.fire('Eliminado!', 'El cliente ha sido eliminado.', 'success');
+            } catch (error) {
+                console.error("Error al eliminar el cliente:", error);
+                Swal.fire('Error!', 'No se pudo eliminar el cliente.', 'error');
+            }
+        }
+    });
+};
 
   return (
+    <AnimatedPage>
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-secondary">Gestión de Clientes</h1>
@@ -57,6 +78,17 @@ const Clients = () => {
           + Nuevo Cliente
         </button>
       </div>
+
+      {/* Barra de Búsqueda */}
+            <div className="mb-4">
+                <input 
+                    type="text"
+                    placeholder="Buscar por nombre o email..."
+                    className="w-full p-2 border rounded-md"
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                />
+            </div>
 
       <div className="bg-white p-4 rounded-lg shadow-md">
         {loading ? (
@@ -72,7 +104,7 @@ const Clients = () => {
               </tr>
             </thead>
             <tbody>
-              {clients.map(client => (
+              {filteredClients.map(client => (
                 <tr key={client.id} className="border-b hover:bg-gray-50">
                   <td className="p-3">{client.name}</td>
                   <td className="p-3">{client.email}</td>
@@ -99,6 +131,7 @@ const Clients = () => {
         clientToEdit={clientToEdit}
       />
     </div>
+  </AnimatedPage>
   );
 };
 

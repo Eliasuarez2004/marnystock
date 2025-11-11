@@ -4,6 +4,7 @@ import { getDashboardStats } from '../firebase/dashboardService';
 import StatCard from '../components/StatCard';
 import { FiTrendingUp, FiAlertCircle, FiArchive, FiUsers } from 'react-icons/fi';
 import { Link } from 'react-router-dom';
+import AnimatedPage from '../components/AnimatedPage';
 
 const statusStyles = {
     'Pagada': 'bg-green-100 text-green-800',
@@ -39,6 +40,7 @@ const Dashboard = () => {
     }
 
     return (
+        <AnimatedPage>
         <div>
             <h1 className="text-3xl font-bold text-secondary mb-6">Resumen del Negocio</h1>
 
@@ -116,6 +118,7 @@ const Dashboard = () => {
                 </div>
             </div>
         </div>
+    </AnimatedPage>
     );
 };
 

@@ -1,9 +1,11 @@
 // src/pages/NotFound.jsx
 import React from 'react';
 import { Link } from 'react-router-dom';
+import AnimatedPage from '../components/AnimatedPage';
 
 const NotFound = () => {
   return (
+    <AnimatedPage>
     <div className="flex flex-col items-center justify-center min-h-screen text-center bg-accent">
       <h1 className="text-6xl font-bold text-primary">404</h1>
       <h2 className="text-2xl font-semibold text-secondary mt-4">Página No Encontrada</h2>
@@ -17,6 +19,7 @@ const NotFound = () => {
         Volver al Inicio
       </Link>
     </div>
+    </AnimatedPage>
   );
 };
 

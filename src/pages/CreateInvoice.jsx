@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { getClients } from '../firebase/clientService';
 import { getProducts } from '../firebase/productService';
 import { addInvoice, getNextInvoiceNumber } from '../firebase/invoiceService';
+import { toast } from 'react-toastify';
+import AnimatedPage from '../components/AnimatedPage';
 
 const CreateInvoice = () => {
     const navigate = useNavigate();
@@ -36,14 +38,14 @@ const CreateInvoice = () => {
 
         // Check if stock is sufficient
         if (product.stock < quantity) {
-            alert(`Stock insuficiente. Solo quedan ${product.stock} unidades.`);
+            toast.error(`Stock insuficiente. Solo quedan ${product.stock} unidades.`);
             return;
         }
 
         // Check if item is already in the list
         const existingItem = invoiceItems.find(item => item.productId === product.id);
         if (existingItem) {
-            alert("Este producto ya está en la factura. Edítalo desde la lista.");
+            toast.warn("Este producto ya está en la factura. Edítalo desde la lista.");
             return;
         }
 
@@ -73,7 +75,7 @@ const CreateInvoice = () => {
 
     const handleSubmitInvoice = async () => {
         if (!selectedClientId || invoiceItems.length === 0) {
-            alert("Por favor, selecciona un cliente y añade al menos un producto.");
+            toast.error("Por favor, selecciona un cliente y añade al menos un producto.");
             return;
         }
         setLoading(true);
@@ -94,16 +96,17 @@ const CreateInvoice = () => {
 
         try {
             await addInvoice(invoiceData);
-            alert(`Factura ${invoiceNumber} creada exitosamente!`);
+            toast.success(`Factura ${invoiceNumber} creada exitosamente!`);
             navigate('/facturas');
         } catch (error) {
             console.error("Error al crear la factura:", error);
-            alert("Hubo un error al crear la factura.");
+            toast.error("Hubo un error al crear la factura.");
         }
         setLoading(false);
     };
 
     return (
+        <AnimatedPage>
         <div>
             <h1 className="text-3xl font-bold text-secondary mb-6">Crear Nueva Factura ({invoiceNumber})</h1>
             
@@ -152,6 +155,7 @@ const CreateInvoice = () => {
                 </button>
             </div>
         </div>
+        </AnimatedPage>
     );
 };
 

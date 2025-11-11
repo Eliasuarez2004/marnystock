@@ -9,9 +9,12 @@ import CreateInvoice from './pages/CreateInvoice';
 import NotFound from './pages/NotFound';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 function App() {
   return (
+    <>
     <Routes>
       <Route path="/login" element={<Login />} />
       
@@ -67,6 +70,19 @@ function App() {
       />
       <Route path="*" element={<NotFound />} />
     </Routes>
+    <ToastContainer
+        position="bottom-right"
+        autoClose={3000}
+        hideProgressBar={false}
+        newestOnTop={false}
+
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="colored"
+      />
+    </>
+
   );
 }
 

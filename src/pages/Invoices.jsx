@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getInvoices, updateInvoiceStatus } from '../firebase/invoiceService';
+import AnimatedPage from '../components/AnimatedPage';
 
 const statusStyles = {
     'Pagada': 'bg-green-100 text-green-800',
@@ -36,6 +37,7 @@ const Invoices = () => {
     };
     
     return (
+        <AnimatedPage>
         <div>
             <div className="flex justify-between items-center mb-6">
                 <h1 className="text-3xl font-bold text-secondary">Facturas</h1>
@@ -85,6 +87,7 @@ const Invoices = () => {
                 )}
             </div>
         </div>
+        </AnimatedPage>
     );
 };
 

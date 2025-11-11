@@ -4,6 +4,7 @@ import { useNavigate, Navigate } from 'react-router-dom';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebase/config';
 import { useAuth } from '../context/AuthContext';
+import AnimatedPage from '../components/AnimatedPage';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -35,6 +36,7 @@ const Login = () => {
   }
 
   return (
+    <AnimatedPage>
     <div className="flex items-center justify-center min-h-screen bg-accent">
       <div className="p-8 bg-white rounded-lg shadow-md w-96">
         <h1 className="text-2xl font-bold text-center text-secondary mb-6">
@@ -78,6 +80,7 @@ const Login = () => {
         </form>
       </div>
     </div>
+    </AnimatedPage>
   );
 };
 

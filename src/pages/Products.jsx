@@ -3,6 +3,9 @@ import React, { useState, useEffect } from 'react';
 import ProductFormModal from '../components/ProductFormModal';
 import ProductCard from '../components/ProductCard';
 import { addProduct, getProducts, updateProduct, deleteProduct } from '../firebase/productService';
+import Swal from 'sweetalert2';
+import AnimatedPage from '../components/AnimatedPage';
+import SkeletonCard from '../components/SkeletonCard';
 
 const Products = () => {
   const [products, setProducts] = useState([]);
@@ -42,17 +45,38 @@ const Products = () => {
   };
 
   const handleDeleteProduct = async (product) => {
-    if (window.confirm(`¿Estás seguro de que quieres eliminar "${product.name}"?`)) {
-      try {
-        await deleteProduct(product.id, product.imageUrl);
-      } catch (error) {
-        console.error("Error al eliminar el producto:", error);
-        alert("No se pudo eliminar el producto.");
-      }
-    }
-  };
+     Swal.fire({ // REEMPLAZADO
+        title: '¿Estás seguro?',
+        text: `No podrás revertir la eliminación de "${product.name}"!`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#CC0033', // Nuestro color primario
+        cancelButtonColor: '#6b7280',
+        confirmButtonText: 'Sí, eliminar!',
+        cancelButtonText: 'Cancelar'
+    }).then(async (result) => {
+        if (result.isConfirmed) {
+            try {
+                await deleteProduct(product.id, product.imageUrl);
+                Swal.fire(
+                    'Eliminado!',
+                    'El producto ha sido eliminado.',
+                    'success'
+                );
+            } catch (error) {
+                console.error("Error al eliminar el producto:", error);
+                Swal.fire(
+                    'Error!',
+                    'No se pudo eliminar el producto.',
+                    'error'
+                );
+            }
+        }
+    });
+};
 
   return (
+    <AnimatedPage>
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-secondary">Gestión de Productos</h1>
@@ -65,19 +89,22 @@ const Products = () => {
       </div>
       
       {loading ? (
-        <p>Cargando productos...</p>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {products.map(product => (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        {/* Muestra 4 esqueletos mientras carga */}
+        {[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}
+    </div>
+) : (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        {products.map(product => (
             <ProductCard 
-              key={product.id} 
-              product={product}
-              onEdit={handleOpenModal}
-              onDelete={handleDeleteProduct}
+                key={product.id} 
+                product={product}
+                onEdit={handleOpenModal}
+                onDelete={handleDeleteProduct}
             />
-          ))}
-        </div>
-      )}
+        ))}
+    </div>
+)}
 
       <ProductFormModal 
         isOpen={isModalOpen}
@@ -86,6 +113,7 @@ const Products = () => {
         productToEdit={productToEdit}
       />
     </div>
+  </AnimatedPage>
   );
 };
 
