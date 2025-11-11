@@ -1,128 +1,149 @@
-// src/pages/Products.jsx (actualizado con búsqueda)
 import React, { useState, useEffect } from 'react';
 import Swal from 'sweetalert2';
-import ProductFormModal from '../components/ProductFormModal';
+import ProductInfoModal from '../components/ProductInfoModal';
+import BatchEntryModal from '../components/BatchEntryModal';
 import ProductCard from '../components/ProductCard';
 import SkeletonCard from '../components/SkeletonCard';
-import { addProduct, getProducts, updateProduct, deleteProduct } from '../firebase/productService';
-import AnimatedPage from '../components/AnimatedPage'; // Asegúrate de que AnimatedPage esté importado si lo usas
+import { saveProductInfo, getProductsWithBatches, deleteProductAndBatches } from '../firebase/productService';
+import AnimatedPage from '../components/AnimatedPage';
+import ProductDetailModal from '../components/ProductDetailModal';
 
 const Products = () => {
-  const [products, setProducts] = useState([]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [productToEdit, setProductToEdit] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState(''); // Estado para la búsqueda
+    const [products, setProducts] = useState([]);
+    const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
+    const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
+    const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+    const [productToEdit, setProductToEdit] = useState(null);
+    const [selectedProductForDetail, setSelectedProductForDetail] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [searchTerm, setSearchTerm] = useState('');
 
-  useEffect(() => {
-    const unsubscribe = getProducts((fetchedProducts) => {
-      setProducts(fetchedProducts);
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
+    useEffect(() => {
+        const unsubscribe = getProductsWithBatches((fetchedProducts) => {
+            setProducts(fetchedProducts);
+            setLoading(false);
+        });
+        return () => unsubscribe();
+    }, []);
 
-  // Filtra los productos en base al término de búsqueda
-  const filteredProducts = products.filter(product =>
-    product.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+    const filteredProducts = products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
-  const handleOpenModal = (product = null) => {
-    setProductToEdit(product);
-    setIsModalOpen(true);
-  };
+    const handleOpenInfoModal = (product = null) => {
+        setProductToEdit(product);
+        setIsInfoModalOpen(true);
+    };
+    const handleCloseInfoModal = () => {
+        setIsInfoModalOpen(false);
+        setProductToEdit(null);
+    };
 
-  const handleCloseModal = () => {
-    setIsModalOpen(false);
-    setProductToEdit(null);
-  };
+    const handleOpenBatchModal = () => setIsBatchModalOpen(true);
+    const handleCloseBatchModal = () => setIsBatchModalOpen(false);
 
-  const handleSaveProduct = async (productData, imageFile) => {
-    if (productToEdit) {
-      await updateProduct(productToEdit.id, productData, imageFile);
-    } else {
-      await addProduct(productData, imageFile);
-    }
-  };
+    const handleOpenDetailModal = (product) => {
+        setSelectedProductForDetail(product);
+        setIsDetailModalOpen(true);
+    };
+    const handleCloseDetailModal = () => {
+        setIsDetailModalOpen(false);
+        setSelectedProductForDetail(null);
+    };
 
-  const handleDeleteProduct = async (product) => {
-    Swal.fire({
-        title: '¿Estás seguro?',
-        text: `No podrás revertir la eliminación de "${product.name}"!`,
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonColor: '#CC0033',
-        cancelButtonColor: '#6b7280',
-        confirmButtonText: 'Sí, eliminar!',
-        cancelButtonText: 'Cancelar'
-    }).then(async (result) => {
-        if (result.isConfirmed) {
-            try {
-                await deleteProduct(product.id, product.imageUrl);
-                Swal.fire('Eliminado!', 'El producto ha sido eliminado.', 'success');
-            } catch (error) {
-                console.error("Error al eliminar el producto:", error);
-                Swal.fire('Error!', 'No se pudo eliminar el producto.', 'error');
+    const handleSaveInfo = async (productData, imageFile) => {
+        await saveProductInfo({ ...productData, id: productToEdit?.id }, imageFile);
+    };
+
+    const handleDelete = async (product) => {
+         Swal.fire({
+            title: '¿Estás seguro?',
+            text: `¡Eliminarás "${product.name}" y todos sus lotes!`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#CC0033',
+            cancelButtonColor: '#6b7280',
+            confirmButtonText: 'Sí, eliminar todo!',
+            cancelButtonText: 'Cancelar'
+        }).then(async (result) => {
+            if(result.isConfirmed) {
+                try {
+                    await deleteProductAndBatches(product);
+                    Swal.fire('Eliminado!', 'El producto y sus lotes han sido eliminados.', 'success');
+                } catch(error) {
+                    console.error("Error al eliminar el producto:", error);
+                    Swal.fire('Error!', 'No se pudo eliminar el producto.', 'error');
+                }
             }
-        }
-    });
-  };
+        });
+    };
 
-  return (
-    <AnimatedPage>
-      <div>
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-secondary">Gestión de Productos</h1>
-          <button 
-            onClick={() => handleOpenModal()}
-            className="px-4 py-2 font-semibold text-white bg-primary rounded-md hover:bg-red-700 transition-colors"
-          >
-            + Nuevo Producto
-          </button>
-        </div>
-        
-        {/* Barra de Búsqueda */}
-        <div className="mb-4">
-            <input 
-                type="text"
-                placeholder="Buscar producto por nombre..."
-                className="w-full p-2 border rounded-md"
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-            />
-        </div>
-        
-        {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}
-          </div>
-        ) : filteredProducts.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredProducts.map(product => (
-              <ProductCard 
-                key={product.id} 
-                product={product}
-                onEdit={handleOpenModal}
-                onDelete={handleDeleteProduct}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-10 bg-white rounded-lg shadow-md">
-              <h3 className="text-xl text-gray-700">No se encontraron productos</h3>
-              <p className="text-gray-500 mt-2">Intenta con un término de búsqueda diferente.</p>
-          </div>
-        )}
-
-        <ProductFormModal 
-          isOpen={isModalOpen}
-          onClose={handleCloseModal}
-          onSave={handleSaveProduct}
-          productToEdit={productToEdit}
-        />
-      </div>
-    </AnimatedPage>
-  );
+    return (
+        <AnimatedPage>
+            <div>
+                <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
+                    <h1 className="text-3xl font-bold text-secondary">Gestión de Inventario</h1>
+                    <div className="flex gap-2">
+                         <button onClick={handleOpenBatchModal} className="px-4 py-2 font-semibold text-white bg-green-600 rounded-md hover:bg-green-700 transition-colors">
+                            + Registrar Entrada
+                        </button>
+                        <button onClick={() => handleOpenInfoModal()} className="px-4 py-2 font-semibold text-white bg-primary rounded-md hover:bg-red-700 transition-colors">
+                            + Nuevo Tipo de Producto
+                        </button>
+                    </div>
+                </div>
+                
+                <div className="mb-4">
+                    <input 
+                        type="text"
+                        placeholder="Buscar producto por nombre..."
+                        className="w-full p-2 border rounded-md"
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.gantt.value)}
+                    />
+                </div>
+                
+                {loading ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        {[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}
+                    </div>
+                ) : filteredProducts.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        {filteredProducts.map(product => (
+                            <ProductCard 
+                                key={product.id} 
+                                product={product}
+                                onEdit={handleOpenInfoModal}
+                                onDelete={handleDelete}
+                                onViewDetails={handleOpenDetailModal}
+                            />
+                        ))}
+                    </div>
+                ) : (
+                    <div className="text-center py-10 bg-white rounded-lg shadow-md">
+                        <h3 className="text-xl text-gray-700">No se encontraron productos</h3>
+                        <p className="text-gray-500 mt-2">Intenta con un término de búsqueda diferente.</p>
+                    </div>
+                )}
+                
+                <ProductInfoModal 
+                    isOpen={isInfoModalOpen}
+                    onClose={handleCloseInfoModal}
+                    onSave={handleSaveInfo}
+                    productToEdit={productToEdit}
+                />
+                <BatchEntryModal 
+                    isOpen={isBatchModalOpen}
+                    onClose={handleCloseBatchModal}
+                    products={products}
+                    onBatchAdded={() => {}}
+                />
+                <ProductDetailModal
+                    isOpen={isDetailModalOpen}
+                    onClose={handleCloseDetailModal}
+                    product={selectedProductForDetail}
+                />
+            </div>
+        </AnimatedPage>
+    );
 };
 
 export default Products;

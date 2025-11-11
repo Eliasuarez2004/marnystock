@@ -7,6 +7,7 @@ import Clients from './pages/Clients';
 import Invoices from './pages/Invoices'
 import CreateInvoice from './pages/CreateInvoice';
 import NotFound from './pages/NotFound';
+import Reports from './pages/Reports'
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import { ToastContainer } from 'react-toastify';
@@ -54,6 +55,16 @@ function App() {
           <ProtectedRoute>
             <Layout>
               <Invoices />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/reportes"
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Reports />
             </Layout>
           </ProtectedRoute>
         }

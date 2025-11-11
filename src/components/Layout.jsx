@@ -58,6 +58,14 @@ const Layout = ({ children }) => {
           >
             Facturas
           </NavLink>
+          <NavLink 
+            to="/reportes" 
+            className={({ isActive }) => 
+              `block py-2.5 px-4 rounded transition duration-200 hover:bg-gray-700 ${isActive ? 'bg-primary' : ''}`
+            }
+          >
+            Reportes
+          </NavLink>
         </nav>
         <div className="p-4 border-t border-gray-700">
             <p className="text-sm text-gray-400 truncate">Hola, {currentUser?.email}</p>

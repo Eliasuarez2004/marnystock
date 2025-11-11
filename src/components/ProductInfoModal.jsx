@@ -1,34 +1,28 @@
-// src/components/ProductFormModal.jsx
+// src/components/ProductInfoModal.jsx (SIMPLIFICADO)
 import React, { useState, useEffect } from 'react';
+import { toast } from 'react-toastify';
 
-const ProductFormModal = ({ isOpen, onClose, onSave, productToEdit }) => {
+const ProductInfoModal = ({ isOpen, onClose, onSave, productToEdit }) => {
   const [product, setProduct] = useState({
     name: '',
     description: '',
     price: '',
-    stock: '',
-    expirationDate: '',
   });
   const [imageFile, setImageFile] = useState(null);
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (productToEdit) {
       setProduct({
-        name: productToEdit.name,
-        description: productToEdit.description,
-        price: productToEdit.price,
-        stock: productToEdit.stock,
-        expirationDate: productToEdit.expirationDate,
+        name: productToEdit.name || '',
+        description: productToEdit.description || '',
+        price: productToEdit.price || '',
       });
     } else {
-      // Reset form when creating a new product
-      setProduct({ name: '', description: '', price: '', stock: '', expirationDate: '' });
+      setProduct({ name: '', description: '', price: '' });
     }
-    setImageFile(null); // Reset image on open
+    setImageFile(null);
   }, [productToEdit, isOpen]);
-
 
   if (!isOpen) return null;
 
@@ -46,12 +40,12 @@ const ProductFormModal = ({ isOpen, onClose, onSave, productToEdit }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
     try {
         await onSave(product, imageFile);
-        onClose(); // Close modal on success
+        toast.success('Información del producto guardada!');
+        onClose();
     } catch (err) {
-        setError('No se pudo guardar el producto. Inténtalo de nuevo.');
+        toast.error('No se pudo guardar la información.');
         console.error(err);
     }
     setLoading(false);
@@ -61,24 +55,16 @@ const ProductFormModal = ({ isOpen, onClose, onSave, productToEdit }) => {
     <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
       <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
         <h2 className="text-2xl font-bold text-secondary mb-4">
-          {productToEdit ? 'Editar Producto' : 'Nuevo Producto'}
+          {productToEdit ? 'Editar Información del Producto' : 'Nuevo Tipo de Producto'}
         </h2>
         <form onSubmit={handleSubmit}>
-          {/* ... Campos del formulario ... */}
           <input type="text" name="name" value={product.name} onChange={handleChange} placeholder="Nombre del Producto" required className="w-full p-2 mb-3 border rounded"/>
           <textarea name="description" value={product.description} onChange={handleChange} placeholder="Descripción" required className="w-full p-2 mb-3 border rounded"></textarea>
-          <input type="number" name="price" value={product.price} onChange={handleChange} placeholder="Precio (LPS)" required className="w-full p-2 mb-3 border rounded" min="0.01" step="0.01"/>
-          <input type="number" name="stock" value={product.stock} onChange={handleChange} placeholder="Cantidad en Stock" required className="w-full p-2 mb-3 border rounded" min="0"/>
-          <div className="mb-3">
-            <label className="block text-sm font-medium text-gray-700">Fecha de Vencimiento</label>
-            <input type="date" name="expirationDate" value={product.expirationDate} onChange={handleChange} required className="w-full p-2 border rounded"/>
-          </div>
+          <input type="number" name="price" value={product.price} onChange={handleChange} placeholder="Precio de Venta Sugerido (LPS)" required className="w-full p-2 mb-3 border rounded" min="0.01" step="0.01"/>
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700">Imagen del Producto</label>
             <input type="file" onChange={handleImageChange} accept="image/*" className="w-full p-2 border rounded"/>
           </div>
-
-          {error && <p className="text-red-500 text-sm text-center mb-4">{error}</p>}
           
           <div className="flex justify-end gap-4">
             <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400">
@@ -94,4 +80,4 @@ const ProductFormModal = ({ isOpen, onClose, onSave, productToEdit }) => {
   );
 };
 
-export default ProductFormModal;
+export default ProductInfoModal;

@@ -1,11 +1,23 @@
-// src/firebase/invoiceService.js
+// src/firebase/invoiceService.js (CÓDIGO COMPLETO Y CORREGIDO)
 import { db } from './config';
 import { collection, addDoc, onSnapshot, doc, updateDoc, writeBatch, getDoc, query, orderBy, limit, getDocs } from 'firebase/firestore';
 
 const INVOICES_COLLECTION = 'invoices';
 const PRODUCTS_COLLECTION = 'products';
 
-// Función para obtener el siguiente número de factura
+// --- ESTA ES LA FUNCIÓN QUE CORREGIMOS ---
+export const getInvoices = (callback) => {
+  const invoicesRef = collection(db, INVOICES_COLLECTION);
+  const q = query(invoicesRef, orderBy("issueDate", "desc"));
+  // onSnapshot devuelve la función 'unsubscribe' que necesitamos
+  return onSnapshot(q, (snapshot) => {
+    const invoices = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    callback(invoices);
+  });
+};
+
+// --- EL RESTO DE FUNCIONES DE LA FASE 9 ---
+
 export const getNextInvoiceNumber = async () => {
     const invoicesRef = collection(db, INVOICES_COLLECTION);
     const q = query(invoicesRef, orderBy("invoiceNumber", "desc"), limit(1));
@@ -21,43 +33,50 @@ export const getNextInvoiceNumber = async () => {
     return `F-${String(nextNumber).padStart(4, '0')}`;
 };
 
-// CREATE INVOICE y UPDATE STOCK
-export const addInvoice = async (invoiceData) => {
-    const batch = writeBatch(db);
-
-    // 1. Añadir la nueva factura al batch
-    const invoiceRef = doc(collection(db, INVOICES_COLLECTION));
-    batch.set(invoiceRef, invoiceData);
-
-    // 2. Actualizar el stock de cada producto en el batch
-    for (const item of invoiceData.items) {
-        const productRef = doc(db, PRODUCTS_COLLECTION, item.productId);
-        const productSnap = await getDoc(productRef);
-        if (productSnap.exists()) {
-            const currentStock = productSnap.data().stock;
-            const newStock = currentStock - item.quantity;
-            batch.update(productRef, { stock: newStock });
-        } else {
-            throw new Error(`Producto con ID ${item.productId} no encontrado.`);
-        }
-    }
-
-    // 3. Ejecutar todas las operaciones del batch
-    await batch.commit();
-};
-
-// READ (en tiempo real)
-export const getInvoices = (callback) => {
-  const invoicesRef = collection(db, INVOICES_COLLECTION);
-  const q = query(invoicesRef, orderBy("issueDate", "desc"));
-  return onSnapshot(q, (snapshot) => {
-    const invoices = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    callback(invoices);
-  });
-};
-
-// UPDATE STATUS
 export const updateInvoiceStatus = async (invoiceId, status) => {
     const invoiceRef = doc(db, INVOICES_COLLECTION, invoiceId);
     await updateDoc(invoiceRef, { status });
+};
+
+export const addInvoiceAndProcessStock = async (invoiceData, saleLocation) => {
+    const batch = writeBatch(db);
+    const invoiceRef = doc(collection(db, INVOICES_COLLECTION));
+    
+    for (const item of invoiceData.items) {
+        let quantityToDeduct = item.quantity;
+        item.batchDetails = [];
+
+        const batchesRef = collection(db, PRODUCTS_COLLECTION, item.productId, 'batches');
+        const q = query(batchesRef, orderBy('expiryDate', 'asc'));
+        const batchesSnapshot = await getDocs(q);
+
+        for (const batchDoc of batchesSnapshot.docs) {
+            if (quantityToDeduct === 0) break;
+
+            const batchData = batchDoc.data();
+            const stockField = saleLocation === 'SPS' ? 'quantitySPS' : 'quantityTGU';
+            const stockInBatch = batchData[stockField] || 0;
+
+            if (stockInBatch > 0) {
+                const quantityTaken = Math.min(quantityToDeduct, stockInBatch);
+                
+                const batchRefToUpdate = doc(db, PRODUCTS_COLLECTION, item.productId, 'batches', batchDoc.id);
+                batch.update(batchRefToUpdate, { [stockField]: stockInBatch - quantityTaken });
+
+                item.batchDetails.push({
+                    lotNumber: batchData.lotNumber,
+                    quantityTaken: quantityTaken,
+                });
+
+                quantityToDeduct -= quantityTaken;
+            }
+        }
+
+        if (quantityToDeduct > 0) {
+            throw new Error(`Stock insuficiente para el producto ${item.name} en la sede ${saleLocation}. Faltan ${quantityToDeduct} unidades.`);
+        }
+    }
+    
+    batch.set(invoiceRef, invoiceData);
+    await batch.commit();
 };

@@ -13,11 +13,17 @@ const ClientFormModal = ({ isOpen, onClose, onSave, clientToEdit }) => {
 
   useEffect(() => {
     if (clientToEdit) {
-      setClient(clientToEdit);
+      setClient({
+        name: clientToEdit.name || '',
+        rtn: clientToEdit.rtn || '', // Asegura que rtn sea siempre un string
+        email: clientToEdit.email || '',
+        phone: clientToEdit.phone || '',
+        address: clientToEdit.address || '',
+      });
     } else {
-      setClient({ name: '', rtn:'', email: '', phone: '', address: '' });
+      setClient({ name: '', rtn: '', email: '', phone: '', address: '' });
     }
-  }, [clientToEdit, isOpen]);
+}, [clientToEdit, isOpen]);
 
   if (!isOpen) return null;
 
