@@ -96,3 +96,24 @@ export const deleteProductAndBatches = async (product) => {
         }
     }
 };
+
+// 4. AÑADE UNA ENTRADA DE MÚLTIPLES PRODUCTOS/LOTES EN UNA SOLA TRANSACCIÓN
+export const addMultiProductBatchEntry = async (entryData) => {
+    const { lotNumber, expiryDate, supplier, items } = entryData;
+    const batch = writeBatch(db);
+
+    items.forEach(item => {
+        const batchRef = doc(collection(db, PRODUCTS_COLLECTION, item.productId, 'batches'));
+        const batchData = {
+            lotNumber,
+            expiryDate,
+            supplier,
+            purchaseDate: new Date().toISOString().split('T')[0],
+            quantitySPS: Number(item.quantitySPS) || 0,
+            quantityTGU: Number(item.quantityTGU) || 0,
+        };
+        batch.set(batchRef, batchData);
+    });
+
+    await batch.commit();
+};
