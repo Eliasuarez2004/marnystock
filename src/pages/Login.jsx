@@ -1,4 +1,4 @@
-// src/pages/Login.jsx (VERSIÓN "SUPERNOVA" FINAL)
+// src/pages/Login.jsx (VERSIÓN FINAL CON GRID ROBUSTO)
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { signInWithEmailAndPassword } from 'firebase/auth';
@@ -6,6 +6,7 @@ import { auth } from '../firebase/config';
 import { useAuth } from '../context/AuthContext';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FiMail, FiLock, FiEye, FiEyeOff } from 'react-icons/fi';
+import MarnystockLogo from '../assets/marnystock-logo.png';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -16,10 +17,10 @@ const Login = () => {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
 
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   useEffect(() => {
     const handleMouseMove = (e) => {
-      document.documentElement.style.setProperty('--x', `${e.clientX}px`);
-      document.documentElement.style.setProperty('--y', `${e.clientY}px`);
+      setMousePosition({ x: e.clientX, y: e.clientY });
     };
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
@@ -40,95 +41,88 @@ const Login = () => {
   
   if (currentUser) { return <Navigate to="/" />; }
 
-  // --- Variantes de Animación ---
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: {
-      opacity: 1,
-      transition: { staggerChildren: 0.1, delayChildren: 0.3 },
-    },
-  };
-
-  const letterVariants = {
+  const itemVariants = {
     hidden: { opacity: 0, y: 20 },
-    visible: { opacity: 1, y: 0 },
+    visible: { opacity: 1, y: 0 }
   };
-  
-  const formElementVariants = {
-      hidden: { opacity: 0, y: 20 },
-      visible: { opacity: 1, y: 0, transition: { duration: 0.5 } }
-  }
-
-  const title = "MarnyStock";
 
   return (
-    <div className="relative flex items-center justify-center min-h-screen overflow-hidden">
-      <div className="aurora-background" />
+    <div className="min-h-screen bg-light-bg grid place-items-center p-4">
       <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
+        initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.5, ease: "easeOut" }}
-        className="relative z-10 p-8 bg-white/10 backdrop-blur-2xl rounded-2xl shadow-2xl w-full max-w-md border border-white/20"
+        transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+        className="grid grid-cols-1 lg:grid-cols-2 w-full max-w-4xl min-h-[600px] bg-light-card rounded-3xl shadow-2xl overflow-hidden"
       >
-        <motion.h1
-          className="text-5xl font-bold text-white text-center mb-8 tracking-wider"
-          variants={containerVariants}
-          initial="hidden"
-          animate="visible"
-        >
-          {title.split("").map((char, index) => (
-            <motion.span key={index} variants={letterVariants}>
-              {char}
-            </motion.span>
-          ))}
-        </motion.h1>
+        {/* === PANEL IZQUIERDO: FORMULARIO === */}
+        <div className="p-8 sm:p-12 flex flex-col justify-center">
+            <motion.div 
+                initial="hidden"
+                animate="visible"
+                variants={{ visible: { transition: { staggerChildren: 0.1, delayChildren: 0.5 } } }}
+                className="w-full"
+            >
+                <motion.h1 variants={itemVariants} className="text-3xl font-bold text-text-dark mb-2">Bienvenido</motion.h1>
+                <motion.p variants={itemVariants} className="text-gray-500 mb-8">Ingresa tus credenciales para acceder.</motion.p>
+                
+                <form onSubmit={handleLogin} className="space-y-6">
+                    <motion.div variants={itemVariants}>
+                        <label htmlFor="email" className="block text-sm font-bold text-gray-700 mb-2">Correo Electrónico</label>
+                        <div className="relative group">
+                            <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400 transition-colors group-focus-within:text-primary"><FiMail /></span>
+                            <input type="email" id="email" className="block w-full pl-10 pr-3 py-2 text-text-dark bg-light-bg border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary transition" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="tu@correo.com"/>
+                        </div>
+                    </motion.div>
+                    <motion.div variants={itemVariants}>
+                        <label htmlFor="password" className="block text-sm font-bold text-gray-700 mb-2">Contraseña</label>
+                        <div className="relative group">
+                            <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400 transition-colors group-focus-within:text-primary"><FiLock /></span>
+                            <input type={showPassword ? 'text' : 'password'} id="password" className="block w-full pl-10 pr-10 py-2 text-text-dark bg-light-bg border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary transition" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••"/>
+                            <span className="absolute inset-y-0 right-0 flex items-center pr-3 cursor-pointer text-gray-400 hover:text-gray-600" onClick={() => setShowPassword(!showPassword)}>{showPassword ? <FiEyeOff /> : <FiEye />}</span>
+                        </div>
+                    </motion.div>
 
-        <motion.form 
-            onSubmit={handleLogin} 
-            className="space-y-6"
-            initial="hidden"
-            animate="visible"
-            variants={{ visible: { transition: { staggerChildren: 0.2, delayChildren: 1 } } }}
-        >
-          <motion.div variants={formElementVariants}>
-            <label htmlFor="email" className="block text-sm font-bold text-gray-300 mb-2">Correo Electrónico</label>
-            <div className="relative group">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400 transition-colors duration-300 group-focus-within:text-white"><FiMail /></span>
-              <input type="email" id="email"
-                className="block w-full pl-10 pr-3 py-2 text-white bg-white/10 border border-white/20 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/80 transition"
-                value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="tu@correo.com"
-              />
-            </div>
-          </motion.div>
-          <motion.div variants={formElementVariants}>
-            <label htmlFor="password" className="block text-sm font-bold text-gray-300 mb-2">Contraseña</label>
-            <div className="relative group">
-              <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400 transition-colors duration-300 group-focus-within:text-white"><FiLock /></span>
-              <input type={showPassword ? 'text' : 'password'} id="password"
-                className="block w-full pl-10 pr-10 py-2 text-white bg-white/10 border border-white/20 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/80 transition"
-                value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••"
-              />
-              <span className="absolute inset-y-0 right-0 flex items-center pr-3 cursor-pointer text-gray-400 hover:text-gray-200" onClick={() => setShowPassword(!showPassword)}>
-                {showPassword ? <FiEyeOff /> : <FiEye />}
-              </span>
-            </div>
-          </motion.div>
+                    <AnimatePresence>{error && <motion.p initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="text-red-500 text-sm text-center -my-2">{error}</motion.p>}</AnimatePresence>
+                    
+                    <motion.div variants={itemVariants}>
+                        <motion.button whileHover={{ scale: 1.02, y: -2, boxShadow: "0 8px 15px rgba(37, 99, 235, 0.2)" }} whileTap={{ scale: 0.98, y: 0 }} type="submit" className="w-full bg-primary text-white py-3 rounded-lg font-semibold text-lg hover:bg-primary-dark transition-colors shadow-lg shadow-blue-500/20 disabled:bg-blue-300" disabled={loading}>
+                            {loading ? 'Ingresando...' : 'Ingresar'}
+                        </motion.button>
+                    </motion.div>
+                </form>
+            </motion.div>
+        </div>
 
-          <AnimatePresence>
-            {error && <motion.p initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="text-red-400 text-sm text-center -my-2">{error}</motion.p>}
-          </AnimatePresence>
-          
-          <motion.button
-            variants={formElementVariants}
-            whileHover={{ scale: 1.02, y: -2, boxShadow: "0 10px 20px -5px rgba(204, 0, 51, 0.4)" }}
-            whileTap={{ scale: 0.98, y: 0 }}
-            type="submit"
-            className="w-full bg-primary text-white py-3 rounded-lg font-semibold text-lg hover:bg-red-700 transition-colors shadow-lg shadow-red-500/30 disabled:bg-red-400 shimmer-button"
-            disabled={loading}
+        {/* === PANEL DERECHO: BRANDING === */}
+        <div className="relative hidden lg:flex w-full items-center justify-center p-12 bg-secondary overflow-hidden">
+          <div 
+            className="absolute inset-0 z-0"
+            style={{
+              backgroundImage: `
+                radial-gradient(
+                  circle 800px at ${mousePosition.x}px ${mousePosition.y}px,
+                  rgba(37, 99, 235, 0.15),
+                  transparent 80%
+                ),
+                radial-gradient(
+                  circle 600px at ${mousePosition.x}px ${mousePosition.y}px,
+                  rgba(96, 165, 250, 0.1),
+                  transparent 80%
+                )
+              `,
+            }}
+          />
+          <motion.div 
+            className="relative z-10 text-center"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.8, delay: 0.5, ease: "easeOut"}}
           >
-            {loading ? 'Ingresando...' : 'Ingresar'}
-          </motion.button>
-        </motion.form>
+            <img src={MarnystockLogo} alt="MarnyStock Logo" className="w-64 mx-auto" style={{ filter: 'drop-shadow(0 0 25px rgba(96, 165, 250, 0.5))' }}/>
+            <h2 className="text-3xl font-bold text-white mt-6">Sistema de Facturación</h2>
+            <p className="text-text-light mt-2 max-w-xs mx-auto">Gestión de inventario y ventas para Marny's de Honduras.</p>
+          </motion.div>
+        </div>
       </motion.div>
     </div>
   );
