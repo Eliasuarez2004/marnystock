@@ -1,23 +1,20 @@
-// src/firebase/invoiceService.js (CÓDIGO COMPLETO Y CORREGIDO)
 import { db } from './config';
 import { collection, addDoc, onSnapshot, doc, updateDoc, writeBatch, getDoc, query, orderBy, limit, getDocs } from 'firebase/firestore';
 
 const INVOICES_COLLECTION = 'invoices';
 const PRODUCTS_COLLECTION = 'products';
 
-// --- ESTA ES LA FUNCIÓN QUE CORREGIMOS ---
+// Obtiene todas las facturas en tiempo real
 export const getInvoices = (callback) => {
   const invoicesRef = collection(db, INVOICES_COLLECTION);
   const q = query(invoicesRef, orderBy("issueDate", "desc"));
-  // onSnapshot devuelve la función 'unsubscribe' que necesitamos
   return onSnapshot(q, (snapshot) => {
     const invoices = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     callback(invoices);
   });
 };
 
-// --- EL RESTO DE FUNCIONES DE LA FASE 9 ---
-
+// Obtiene el siguiente número de factura correlativo
 export const getNextInvoiceNumber = async () => {
     const invoicesRef = collection(db, INVOICES_COLLECTION);
     const q = query(invoicesRef, orderBy("invoiceNumber", "desc"), limit(1));
@@ -33,16 +30,20 @@ export const getNextInvoiceNumber = async () => {
     return `F-${String(nextNumber).padStart(4, '0')}`;
 };
 
-export const updateInvoiceStatus = async (invoiceId, status) => {
-    const invoiceRef = doc(db, INVOICES_COLLECTION, invoiceId);
-    await updateDoc(invoiceRef, { status });
-};
-
+// Crea una factura y descuenta el stock (actualizado para incluir saldos)
 export const addInvoiceAndProcessStock = async (invoiceData, saleLocation) => {
     const batch = writeBatch(db);
     const invoiceRef = doc(collection(db, INVOICES_COLLECTION));
+
+    // --- ¡ACTUALIZACIÓN IMPORTANTE! ---
+    // Añadimos los nuevos campos de saldo al crear la factura
+    const fullInvoiceData = {
+        ...invoiceData,
+        amountPaid: 0,
+        balanceDue: invoiceData.total,
+    };
     
-    for (const item of invoiceData.items) {
+    for (const item of fullInvoiceData.items) {
         let quantityToDeduct = item.quantity;
         item.batchDetails = [];
 
@@ -77,6 +78,47 @@ export const addInvoiceAndProcessStock = async (invoiceData, saleLocation) => {
         }
     }
     
-    batch.set(invoiceRef, invoiceData);
+    // Guardamos la factura con los campos de saldo inicializados
+    batch.set(invoiceRef, fullInvoiceData);
     await batch.commit();
+};
+
+// --- ¡NUEVA FUNCIÓN! ---
+// Registra un pago y actualiza el saldo de la factura
+export const addPaymentToInvoice = async (invoice, paymentData) => {
+    const batch = writeBatch(db);
+    const invoiceRef = doc(db, INVOICES_COLLECTION, invoice.id);
+    const paymentRef = doc(collection(db, 'invoices', invoice.id, 'payments'));
+
+    // 1. Registrar el nuevo pago en la sub-colección de pagos
+    batch.set(paymentRef, {
+        ...paymentData,
+        paymentDate: new Date().toISOString().split('T')[0],
+    });
+
+    // 2. Calcular los nuevos totales y el nuevo estado
+    const newAmountPaid = (invoice.amountPaid || 0) + Number(paymentData.amount);
+    const newBalanceDue = invoice.total - newAmountPaid;
+    const newStatus = newBalanceDue <= 0 ? 'Pagada' : 'Abonada';
+
+    // 3. Actualizar la información en el documento principal de la factura
+    batch.update(invoiceRef, {
+        amountPaid: newAmountPaid,
+        balanceDue: newBalanceDue,
+        status: newStatus,
+    });
+
+    // Ejecutar todas las operaciones
+    await batch.commit();
+};
+
+// --- ¡NUEVA FUNCIÓN! ---
+// Obtiene el historial de pagos de una factura específica
+export const getInvoicePayments = (invoiceId, callback) => {
+    const paymentsRef = collection(db, 'invoices', invoiceId, 'payments');
+    const q = query(paymentsRef, orderBy('paymentDate', 'desc'));
+    return onSnapshot(q, (snapshot) => {
+        const payments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        callback(payments);
+    });
 };

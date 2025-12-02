@@ -66,3 +66,52 @@
   background-size: 3px 3px;
   animation: animStar 150s linear infinite;
 }
+
+/* En src/index.css, al final */
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.gradient-border {
+  position: relative;
+  border-radius: 1.5rem; /* Debe coincidir con el rounded-3xl de la tarjeta */
+  overflow: hidden;
+  padding: 1px; /* El "grosor" del borde */
+}
+
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 200%; /* El doble del tamaño para que gire bien */
+  height: 200%;
+  background: conic-gradient(
+    from 0deg,
+    #60a5fa, /* Color 'accent' */
+    #2563eb, /* Color 'primary' */
+    #60a5fa
+  );
+  transform-origin: center;
+  animation: spin 5s linear infinite;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+
+.gradient-border:hover::before {
+  opacity: 1;
+}
+
+/* Contenido interno que tapa el fondo del gradiente */
+.gradient-border-inner {
+    border-radius: calc(1.5rem - 1px); /* Un poco menos que el contenedor para que el borde se vea */
+    width: 100%;
+    height: 100%;
+}

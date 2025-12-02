@@ -12,6 +12,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import CursorTrail from './components/CursorTrail';
 
 function App() {
   return (
@@ -81,6 +82,7 @@ function App() {
       />
       <Route path="*" element={<NotFound />} />
     </Routes>
+    <CursorTrail />
     <ToastContainer
         position="bottom-right"
         autoClose={3000}
