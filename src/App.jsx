@@ -2,7 +2,7 @@
 import { Routes, Route } from 'react-router-dom';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
-import Products from './pages/Products';
+import Inventory from './pages/Inventory';
 import Clients from './pages/Clients';
 import Invoices from './pages/Invoices'
 import CreateInvoice from './pages/CreateInvoice';
@@ -10,6 +10,7 @@ import NotFound from './pages/NotFound';
 import Reports from './pages/Reports'
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
+import Catalog from './pages/Catalog'
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import CursorTrail from './components/CursorTrail';
@@ -31,11 +32,21 @@ function App() {
         } 
       />
       <Route 
-        path="/productos" 
+        path="/catalogo" 
         element={
           <ProtectedRoute>
             <Layout>
-              <Products />
+              <Catalog />
+            </Layout>
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/inventario" 
+        element={
+          <ProtectedRoute>
+            <Layout>
+              <Inventory />
             </Layout>
           </ProtectedRoute>
         } 

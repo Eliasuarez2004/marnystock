@@ -33,7 +33,8 @@ const Layout = ({ children }) => {
         </div>
         <nav className="flex-grow p-4 space-y-2">
           <NavLink to="/" className={navLinkClasses}>Dashboard</NavLink>
-          <NavLink to="/productos" className={navLinkClasses}>Productos</NavLink>
+          <NavLink to="/catalogo" className={navLinkClasses}>Catálogo</NavLink> {/* <-- NUEVO ENLACE */}
+          <NavLink to="/inventario" className={navLinkClasses}>Inventario</NavLink> {/* <-- ENLACE RENOMBRADO */}
           <NavLink to="/clientes" className={navLinkClasses}>Clientes</NavLink>
           <NavLink to="/facturas" className={navLinkClasses}>Facturas</NavLink>
           <NavLink to="/reportes" className={navLinkClasses}>Reportes</NavLink>

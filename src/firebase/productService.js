@@ -1,39 +1,60 @@
-// src/firebase/productService.js (RE-ARQUITECTADO)
+// src/firebase/productService.js (VERSIÓN FINAL CON LÓGICA DE EDICIÓN DE IMAGEN CORREGIDA)
 import { db, storage } from './config';
-import { collection, doc, writeBatch, onSnapshot, getDoc, getDocs } from 'firebase/firestore';
+import { collection, doc, writeBatch, onSnapshot, getDocs } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { nanoid } from 'nanoid';
 
 const PRODUCTS_COLLECTION = 'products';
 
-// Sube una imagen (sin cambios)
+// --- ¡NUEVA Y MEJORADA LÓGICA PARA SUBIR IMAGEN! ---
 const uploadImage = async (imageFile) => {
     const uniqueId = nanoid();
+    // Creamos un nombre de archivo único para evitar colisiones
     const imageRef = ref(storage, `products/${uniqueId}-${imageFile.name}`);
     await uploadBytes(imageRef, imageFile);
     return await getDownloadURL(imageRef);
 };
 
-// --- NUEVAS FUNCIONES PARA GESTIÓN DE PRODUCTOS Y LOTES ---
-
-// 1. CREA O ACTUALIZA LA INFORMACIÓN GENERAL DE UN PRODUCTO (sin stock)
-export const saveProductInfo = async (productData, imageFile) => {
-    const batch = writeBatch(db);
-    const productRef = productData.id ? doc(db, PRODUCTS_COLLECTION, productData.id) : doc(collection(db, PRODUCTS_COLLECTION));
-
-    let imageUrl = productData.imageUrl || '';
-    if (imageFile) {
-        imageUrl = await uploadImage(imageFile);
+// --- ¡NUEVA Y MEJORADA LÓGICA PARA BORRAR IMAGEN! ---
+const deleteImage = async (imageUrl) => {
+    if (!imageUrl) return; // Si no hay URL, no hay nada que borrar
+    try {
+        const imageRef = ref(storage, imageUrl);
+        await deleteObject(imageRef);
+    } catch (error) {
+        // Ignoramos errores si el archivo no existe, que es común
+        if (error.code !== 'storage/object-not-found') {
+            console.error("Error al borrar la imagen antigua:", error);
+        }
     }
+};
 
-    const dataToSave = {
+// --- FUNCIÓN saveProductInfo CORREGIDA Y MEJORADA ---
+export const saveProductInfo = async (productData, imageFile) => {
+    const isEditing = !!productData.id;
+    const productRef = isEditing ? doc(db, PRODUCTS_COLLECTION, productData.id) : doc(collection(db, PRODUCTS_COLLECTION));
+    
+    let dataToSave = {
         name: productData.name,
         description: productData.description,
-        price: productData.price, // Mantenemos el precio de venta sugerido aquí
-        imageUrl: imageUrl,
+        price: Number(productData.price), // Asegurarse de que el precio sea un número
     };
 
-    if (productData.id) {
+    if (imageFile) {
+        // Si el usuario subió una nueva imagen
+        if (isEditing && productData.imageUrl) {
+            // Si estamos editando y había una imagen antigua, la borramos
+            await deleteImage(productData.imageUrl);
+        }
+        // Subimos la nueva imagen y obtenemos su URL
+        dataToSave.imageUrl = await uploadImage(imageFile);
+    } else {
+        // Si no se subió una nueva imagen, mantenemos la que ya existía (si la hay)
+        dataToSave.imageUrl = productData.imageUrl || '';
+    }
+
+    const batch = writeBatch(db);
+    if (isEditing) {
         batch.update(productRef, dataToSave);
     } else {
         batch.set(productRef, dataToSave);
@@ -41,38 +62,23 @@ export const saveProductInfo = async (productData, imageFile) => {
     await batch.commit();
 };
 
-// 2. AÑADE UN NUEVO LOTE A UN PRODUCTO EXISTENTE (ESTA ES LA "ENTRADA DE INVENTARIO")
-export const addBatchToProduct = async (productId, batchData) => {
-    const batchRef = doc(collection(db, PRODUCTS_COLLECTION, productId, 'batches'));
-    await writeBatch(db).set(batchRef, batchData).commit();
-};
-
-// 3. OBTIENE TODOS LOS PRODUCTOS CON SUS LOTES ANIDADOS
-export const getProductsWithBatches = (callback) => {
-    const productsCollection = collection(db, PRODUCTS_COLLECTION);
-    
-    return onSnapshot(productsCollection, async (snapshot) => {
-        const productsPromises = snapshot.docs.map(async (productDoc) => {
-            const product = { id: productDoc.id, ...productDoc.data() };
-            
-            const batchesCollection = collection(db, PRODUCTS_COLLECTION, product.id, 'batches');
-            const batchesSnapshot = await getDocs(batchesCollection);
-            
-            product.batches = batchesSnapshot.docs.map(batchDoc => ({ id: batchDoc.id, ...batchDoc.data() }));
-            
-            return product;
-        });
-        
-        const productsWithBatches = await Promise.all(productsPromises);
-        callback(productsWithBatches);
+// Obtiene la lista de "tipos de producto"
+export const getProductTypesStream = (callback) => {
+    const productsRef = collection(db, PRODUCTS_COLLECTION);
+    return onSnapshot(productsRef, (snapshot) => {
+        const productTypes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        callback(productTypes);
     });
 };
 
-// 4. ELIMINA UN PRODUCTO Y TODOS SUS LOTES Y SU IMAGEN
+// Elimina un producto, sus lotes y su imagen
 export const deleteProductAndBatches = async (product) => {
+    // Primero, borramos la imagen del storage
+    await deleteImage(product.imageUrl);
+
     const batch = writeBatch(db);
 
-    // Borrar todos los lotes de la sub-colección
+    // Borramos todos los lotes de la sub-colección (si existieran)
     if (product.batches && product.batches.length > 0) {
         product.batches.forEach(b => {
             const batchRef = doc(db, PRODUCTS_COLLECTION, product.id, 'batches', b.id);
@@ -80,40 +86,12 @@ export const deleteProductAndBatches = async (product) => {
         });
     }
     
-    // Borrar el documento principal del producto
+    // Borramos el documento principal del producto
     const productRef = doc(db, PRODUCTS_COLLECTION, product.id);
     batch.delete(productRef);
 
     await batch.commit();
-
-    // Borrar la imagen de Storage si existe
-    if (product.imageUrl) {
-        const imageRef = ref(storage, product.imageUrl);
-        try {
-            await deleteObject(imageRef);
-        } catch (error) {
-            console.error("Error al borrar imagen:", error);
-        }
-    }
 };
 
-// 4. AÑADE UNA ENTRADA DE MÚLTIPLES PRODUCTOS/LOTES EN UNA SOLA TRANSACCIÓN
-export const addMultiProductBatchEntry = async (entryData) => {
-    const { lotNumber, expiryDate, supplier, items } = entryData;
-    const batch = writeBatch(db);
-
-    items.forEach(item => {
-        const batchRef = doc(collection(db, PRODUCTS_COLLECTION, item.productId, 'batches'));
-        const batchData = {
-            lotNumber,
-            expiryDate,
-            supplier,
-            purchaseDate: new Date().toISOString().split('T')[0],
-            quantitySPS: Number(item.quantitySPS) || 0,
-            quantityTGU: Number(item.quantityTGU) || 0,
-        };
-        batch.set(batchRef, batchData);
-    });
-
-    await batch.commit();
-};
+// --- La función getProductsWithBatches se elimina ya que no se usa en la nueva estructura ---
+// La lógica para combinar productos y lotes ahora vive en la página de Catálogo.
