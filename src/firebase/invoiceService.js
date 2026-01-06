@@ -1,8 +1,9 @@
 import { db } from './config';
-import { collection, addDoc, onSnapshot, doc, updateDoc, writeBatch, getDoc, query, orderBy, limit, getDocs } from 'firebase/firestore';
+import { collection, doc, writeBatch, onSnapshot, getDoc, query, orderBy, limit, getDocs, where, addDoc } from 'firebase/firestore';
 
 const INVOICES_COLLECTION = 'invoices';
-const PRODUCTS_COLLECTION = 'products';
+const INVENTORY_LOTS_COLLECTION = 'inventory_lots';
+const MOVEMENTS_COLLECTION = 'inventory_movements';
 
 // Obtiene todas las facturas en tiempo real
 export const getInvoices = (callback) => {
@@ -30,13 +31,12 @@ export const getNextInvoiceNumber = async () => {
     return `F-${String(nextNumber).padStart(4, '0')}`;
 };
 
-// Crea una factura y descuenta el stock (actualizado para incluir saldos)
+// --- FUNCIÓN addInvoiceAndProcessStock RECONSTRUIDA PARA KARDEX ---
 export const addInvoiceAndProcessStock = async (invoiceData, saleLocation) => {
     const batch = writeBatch(db);
     const invoiceRef = doc(collection(db, INVOICES_COLLECTION));
 
-    // --- ¡ACTUALIZACIÓN IMPORTANTE! ---
-    // Añadimos los nuevos campos de saldo al crear la factura
+    // Añadimos los campos de saldo al crear la factura
     const fullInvoiceData = {
         ...invoiceData,
         amountPaid: 0,
@@ -47,72 +47,95 @@ export const addInvoiceAndProcessStock = async (invoiceData, saleLocation) => {
         let quantityToDeduct = item.quantity;
         item.batchDetails = [];
 
-        const batchesRef = collection(db, PRODUCTS_COLLECTION, item.productId, 'batches');
-        const q = query(batchesRef, orderBy('expiryDate', 'asc'));
-        const batchesSnapshot = await getDocs(q);
+        // 1. Buscamos en la nueva colección 'inventory_lots'
+        const lotsQuery = query(
+            collection(db, INVENTORY_LOTS_COLLECTION),
+            where("productId", "==", item.productId), // Lotes para este producto
+            orderBy('expiryDate', 'asc')              // Ordenados por vencimiento (FEFO)
+        );
+        const lotsSnapshot = await getDocs(lotsQuery);
 
-        for (const batchDoc of batchesSnapshot.docs) {
+        // 2. Iteramos sobre los lotes encontrados para descontar el stock
+        for (const lotDoc of lotsSnapshot.docs) {
             if (quantityToDeduct === 0) break;
 
-            const batchData = batchDoc.data();
-            const stockField = saleLocation === 'SPS' ? 'quantitySPS' : 'quantityTGU';
-            const stockInBatch = batchData[stockField] || 0;
+            const lotData = lotDoc.data();
+            const stockField = saleLocation === 'SPS' ? 'stockSPS' : 'stockTGU';
+            const stockInLot = lotData[stockField] || 0;
 
-            if (stockInBatch > 0) {
-                const quantityTaken = Math.min(quantityToDeduct, stockInBatch);
+            if (stockInLot > 0) {
+                const quantityTaken = Math.min(quantityToDeduct, stockInLot);
                 
-                const batchRefToUpdate = doc(db, PRODUCTS_COLLECTION, item.productId, 'batches', batchDoc.id);
-                batch.update(batchRefToUpdate, { [stockField]: stockInBatch - quantityTaken });
+                // Actualizamos el stock en el lote específico
+                const lotRefToUpdate = doc(db, INVENTORY_LOTS_COLLECTION, lotDoc.id);
+                batch.update(lotRefToUpdate, { [stockField]: stockInLot - quantityTaken });
 
+                // Registramos el detalle para la trazabilidad en la factura
                 item.batchDetails.push({
-                    lotNumber: batchData.lotNumber,
+                    lotId: lotDoc.id,
+                    lotNumber: lotData.lotNumber,
                     quantityTaken: quantityTaken,
                 });
+                
+                // Registramos el movimiento en el Kardex
+                const movementRef = doc(collection(db, MOVEMENTS_COLLECTION));
+                const movementData = {
+                    date: new Date().toISOString(),
+                    type: 'SALIDA_VENTA',
+                    lotId: lotDoc.id,
+                    lotNumber: lotData.lotNumber,
+                    productId: item.productId,
+                    productName: item.name,
+                    fromLocation: saleLocation,
+                    quantity: quantityTaken,
+                    reason: `Factura ${invoiceData.invoiceNumber}`
+                };
+                batch.set(movementRef, movementData);
 
                 quantityToDeduct -= quantityTaken;
             }
         }
 
         if (quantityToDeduct > 0) {
-            throw new Error(`Stock insuficiente para el producto ${item.name} en la sede ${saleLocation}. Faltan ${quantityToDeduct} unidades.`);
+            throw new Error(`Stock insuficiente para ${item.name} en ${saleLocation}. Faltan ${quantityToDeduct} unidades.`);
         }
     }
     
-    // Guardamos la factura con los campos de saldo inicializados
+    // Guardamos la factura con la información completa
     batch.set(invoiceRef, fullInvoiceData);
     await batch.commit();
 };
 
-// --- ¡NUEVA FUNCIÓN! ---
+
 // Registra un pago y actualiza el saldo de la factura
 export const addPaymentToInvoice = async (invoice, paymentData) => {
     const batch = writeBatch(db);
     const invoiceRef = doc(db, INVOICES_COLLECTION, invoice.id);
     const paymentRef = doc(collection(db, 'invoices', invoice.id, 'payments'));
 
-    // 1. Registrar el nuevo pago en la sub-colección de pagos
     batch.set(paymentRef, {
         ...paymentData,
         paymentDate: new Date().toISOString().split('T')[0],
     });
 
-    // 2. Calcular los nuevos totales y el nuevo estado
-    const newAmountPaid = (invoice.amountPaid || 0) + Number(paymentData.amount);
-    const newBalanceDue = invoice.total - newAmountPaid;
-    const newStatus = newBalanceDue <= 0 ? 'Pagada' : 'Abonada';
+    // Usamos el saldo actual calculado para evitar errores con datos antiguos
+    const currentBalance = invoice.balanceDue ?? invoice.total;
+    const currentPaid = invoice.amountPaid || 0;
 
-    // 3. Actualizar la información en el documento principal de la factura
+    const newAmountPaid = currentPaid + Number(paymentData.amount);
+    const newBalanceDue = invoice.total - newAmountPaid;
+    const newStatus = newBalanceDue <= 0.001 ? 'Pagada' : 'Abonada'; // Usamos un margen pequeño por errores de flotantes
+
     batch.update(invoiceRef, {
         amountPaid: newAmountPaid,
         balanceDue: newBalanceDue,
         status: newStatus,
     });
 
-    // Ejecutar todas las operaciones
     await batch.commit();
 };
 
-// --- ¡NUEVA FUNCIÓN! ---
+
 // Obtiene el historial de pagos de una factura específica
 export const getInvoicePayments = (invoiceId, callback) => {
     const paymentsRef = collection(db, 'invoices', invoiceId, 'payments');

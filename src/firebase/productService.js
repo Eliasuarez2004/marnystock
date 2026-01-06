@@ -1,10 +1,11 @@
 // src/firebase/productService.js (VERSIÓN FINAL CON LÓGICA DE EDICIÓN DE IMAGEN CORREGIDA)
 import { db, storage } from './config';
-import { collection, doc, writeBatch, onSnapshot, getDocs } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { collection, doc, writeBatch, onSnapshot, getDocs, query, where, getDoc } from 'firebase/firestore';
+import { ref, deleteObject, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { nanoid } from 'nanoid';
 
 const PRODUCTS_COLLECTION = 'products';
+const INVENTORY_LOTS_COLLECTION = 'inventory_lots';
 
 // --- ¡NUEVA Y MEJORADA LÓGICA PARA SUBIR IMAGEN! ---
 const uploadImage = async (imageFile) => {
@@ -93,5 +94,33 @@ export const deleteProductAndBatches = async (product) => {
     await batch.commit();
 };
 
-// --- La función getProductsWithBatches se elimina ya que no se usa en la nueva estructura ---
-// La lógica para combinar productos y lotes ahora vive en la página de Catálogo.
+// --- ¡FUNCIÓN DE BORRADO CORREGIDA Y MEJORADA! ---
+export const deleteProductAndAssociatedLots = async (product) => {
+    // Primero, borramos la imagen del storage
+    if (product.imageUrl) {
+        const imageRef = ref(storage, product.imageUrl);
+        try {
+            await deleteObject(imageRef);
+        } catch (error) {
+            if (error.code !== 'storage/object-not-found') console.error("Error al borrar imagen:", error);
+        }
+    }
+
+    const batch = writeBatch(db);
+
+    // 1. Buscar todos los lotes asociados a este tipo de producto
+    const lotsQuery = query(collection(db, INVENTORY_LOTS_COLLECTION), where("productId", "==", product.id));
+    const lotsSnapshot = await getDocs(lotsQuery);
+
+    // 2. Añadir cada lote encontrado a la operación de borrado
+    lotsSnapshot.forEach(lotDoc => {
+        batch.delete(lotDoc.ref);
+    });
+
+    // 3. Añadir el documento principal del "tipo de producto" a la operación de borrado
+    const productRef = doc(db, PRODUCTS_COLLECTION, product.id);
+    batch.delete(productRef);
+
+    // 4. Ejecutar todas las operaciones de borrado atómicamente
+    await batch.commit();
+};

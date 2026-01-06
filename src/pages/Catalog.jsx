@@ -1,11 +1,12 @@
-// src/pages/Catalog.jsx
+// src/pages/Catalog.jsx (VERSIÓN FINAL CON IMPORTACIÓN CORREGIDA)
 import React, { useState, useEffect, useMemo } from 'react';
-import { getProductTypesStream } from '../firebase/productService';
+// --- ¡LA CORRECCIÓN ESTÁ EN ESTA LÍNEA! ---
+import { getProductTypesStream, saveProductInfo, deleteProductAndAssociatedLots } from '../firebase/productService';
 import { getInventoryLotsStream } from '../firebase/inventoryService';
 import AnimatedPage from '../components/AnimatedPage';
 import ProductCard from '../components/ProductCard';
 import ProductInfoModal from '../components/ProductInfoModal';
-import { saveProductInfo, deleteProductAndBatches } from '../firebase/productService';
+import ProductDetailModal from '../components/ProductDetailModal';
 import Swal from 'sweetalert2';
 import SkeletonCard from '../components/SkeletonCard';
 import { FiPlus } from 'react-icons/fi';
@@ -18,24 +19,37 @@ const Catalog = () => {
 
     const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
     const [productToEdit, setProductToEdit] = useState(null);
+    
+    const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+    const [selectedProductForDetail, setSelectedProductForDetail] = useState(null);
 
     useEffect(() => {
+        setLoading(true);
         const unsubscribeProducts = getProductTypesStream(setProductTypes);
-        const unsubscribeLots = getInventoryLotsStream((fetchedLots) => {
-            setLots(fetchedLots);
+        const unsubscribeLots = getInventoryLotsStream(setLots);
+
+        const timer = setTimeout(() => {
             setLoading(false);
-        });
+        }, 3000);
+
         return () => {
             unsubscribeProducts();
             unsubscribeLots();
+            clearTimeout(timer);
         };
     }, []);
 
-    // Combinamos los tipos de producto con sus lotes correspondientes para calcular el stock total
+    useEffect(() => {
+        // Solo deja de cargar si los datos han llegado. Si no hay datos, espera al timeout.
+        if (productTypes.length > 0 || lots.length > 0 || !loading) {
+            setLoading(false);
+        }
+    }, [productTypes, lots]);
+
     const productsWithStock = useMemo(() => {
         return productTypes.map(product => {
             const associatedLots = lots.filter(lot => lot.productId === product.id);
-            return { ...product, batches: associatedLots }; // ProductCard espera una prop 'batches'
+            return { ...product, batches: associatedLots };
         });
     }, [productTypes, lots]);
 
@@ -45,13 +59,16 @@ const Catalog = () => {
         setProductToEdit(product);
         setIsInfoModalOpen(true);
     };
+
     const handleCloseInfoModal = () => {
         setIsInfoModalOpen(false);
         setProductToEdit(null);
     };
+
     const handleSaveInfo = async (productData, imageFile) => {
         await saveProductInfo({ ...productData, id: productToEdit?.id, imageUrl: productToEdit?.imageUrl }, imageFile);
     };
+
     const handleDelete = async (product) => {
         Swal.fire({
             title: '¿Estás seguro?',
@@ -65,14 +82,25 @@ const Catalog = () => {
         }).then(async (result) => {
             if(result.isConfirmed) {
                 try {
-                    // Necesitamos pasar el producto con sus lotes para que la función de borrado funcione
-                    await deleteProductAndBatches(product);
-                    Swal.fire('Eliminado!', 'El producto y su inventario han sido eliminados.', 'success');
+                    // Ahora la función está importada y disponible
+                    await deleteProductAndAssociatedLots(product);
+                    Swal.fire('Eliminado!', 'El producto y todo su inventario han sido eliminados.', 'success');
                 } catch(error) {
+                    console.error("Error al eliminar el producto:", error);
                     Swal.fire('Error!', 'No se pudo eliminar el producto.', 'error');
                 }
             }
         });
+    };
+
+    const handleOpenDetailModal = (product) => {
+        setSelectedProductForDetail(product);
+        setIsDetailModalOpen(true);
+    };
+
+    const handleCloseDetailModal = () => {
+        setIsDetailModalOpen(false);
+        setSelectedProductForDetail(null);
     };
 
     return (
@@ -98,15 +126,14 @@ const Catalog = () => {
                             product={product}
                             onEdit={handleOpenInfoModal}
                             onDelete={handleDelete}
-                            // Dejamos onViewDetails vacío por ahora o puedes quitarlo de ProductCard
-                            onViewDetails={() => {}}
+                            onViewDetails={handleOpenDetailModal}
                         />
                     ))}
                 </div>
             ) : (
                 <div className="text-center py-10 bg-white rounded-lg shadow-md">
                     <h3 className="text-xl text-gray-700">No hay productos en el catálogo</h3>
-                    <p className="text-gray-500 mt-2">Haz clic en "+ Nuevo Producto" para empezar.</p>
+                    <p className="text-gray-500 mt-2">Haz clic en "+ Nuevo Producto" para empezar a construir tu catálogo.</p>
                 </div>
             )}
 
@@ -115,6 +142,11 @@ const Catalog = () => {
                 onClose={handleCloseInfoModal}
                 onSave={handleSaveInfo}
                 productToEdit={productToEdit}
+            />
+            <ProductDetailModal
+                isOpen={isDetailModalOpen}
+                onClose={handleCloseDetailModal}
+                product={selectedProductForDetail}
             />
         </AnimatedPage>
     );

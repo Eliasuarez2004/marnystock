@@ -1,8 +1,8 @@
-// src/firebase/inventoryService.js (ACTUALIZADO)
+// src/firebase/inventoryService.js (VERSIÓN FINAL Y COMPLETA)
 import { db } from './config';
-import { collection, doc, writeBatch, onSnapshot, getDoc, query, orderBy, addDoc, where } from 'firebase/firestore';
+import { collection, doc, writeBatch, onSnapshot, getDoc, query, orderBy, addDoc, where, updateDoc } from 'firebase/firestore';
 
-// Obtiene todos los lotes de inventario, ordenados por fecha de vencimiento (FEFO)
+// Obtiene todos los lotes de inventario en tiempo real
 export const getInventoryLotsStream = (callback) => {
     const q = query(collection(db, 'inventory_lots'), orderBy('expiryDate', 'asc'));
     return onSnapshot(q, (snapshot) => {
@@ -20,37 +20,33 @@ export const getLotHistoryStream = (lotId, callback) => {
     });
 };
 
-// --- ¡NUEVA FUNCIÓN PARA ENTRADAS MULTI-PRODUCTO! ---
-// Crea múltiples documentos de lote, uno por cada producto en la entrada.
+// Crea múltiples documentos de lote para una nueva entrada de compra
 export const addMultiProductEntry = async (entryData) => {
-    const { lotNumber, expiryDate, supplier, items } = entryData;
+    const { lotNumber, supplier, items } = entryData; // Ya no necesitamos expiryDate aquí
     const batch = writeBatch(db);
 
-    // Por cada producto en la lista de entrada...
     items.forEach(item => {
-        // ...creamos un nuevo documento en la colección 'inventory_lots'
         const newLotRef = doc(collection(db, 'inventory_lots'));
         const lotData = {
             productId: item.productId,
             productName: item.name,
             lotNumber,
-            expiryDate,
+            expiryDate: item.expiryDate, // <-- ¡NUEVO! Usamos la fecha de cada item
             supplier,
             stockSPS: Number(item.quantitySPS) || 0,
             stockTGU: Number(item.quantityTGU) || 0,
         };
         batch.set(newLotRef, lotData);
         
-        // Y registramos el movimiento inicial en el historial
         const movementRef = doc(collection(db, 'inventory_movements'));
         const movementData = {
             date: new Date().toISOString(),
             type: 'ENTRADA_COMPRA',
-            lotId: newLotRef.id, // Hacemos referencia al nuevo lote
+            lotId: newLotRef.id,
             lotNumber,
             productId: item.productId,
             productName: item.name,
-            toLocation: 'BODEGA', // Origen genérico
+            toLocation: 'BODEGA',
             quantity: (Number(item.quantitySPS) || 0) + (Number(item.quantityTGU) || 0),
             reason: `Compra a ${supplier}`
         };
@@ -76,7 +72,6 @@ export const createInventoryMovement = async (movementData) => {
     const updates = {};
     let fromStockField, toStockField;
     
-    // Determinar campos de stock y validar
     if (fromLocation) {
         fromStockField = fromLocation === 'SPS' ? 'stockSPS' : 'stockTGU';
         if ((lotData[fromStockField] || 0) < quantity) {
@@ -89,10 +84,8 @@ export const createInventoryMovement = async (movementData) => {
         updates[toStockField] = (lotData[toStockField] || 0) + quantity;
     }
 
-    // Aplicar la actualización de stock al lote
     batch.update(lotRef, updates);
 
-    // Registrar el movimiento en el historial (Kardex)
     const movementRef = doc(collection(db, 'inventory_movements'));
     batch.set(movementRef, {
         ...movementData,
@@ -102,4 +95,11 @@ export const createInventoryMovement = async (movementData) => {
     });
 
     await batch.commit();
+};
+
+// --- ¡NUEVA FUNCIÓN AÑADIDA! ---
+// Actualiza la información de un lote (número de lote y fecha de vencimiento)
+export const updateLotInfo = async (lotId, dataToUpdate) => {
+    const lotRef = doc(db, 'inventory_lots', lotId);
+    await updateDoc(lotRef, dataToUpdate);
 };
