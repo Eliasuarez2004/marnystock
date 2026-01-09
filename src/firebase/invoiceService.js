@@ -1,5 +1,5 @@
 import { db } from './config';
-import { collection, doc, writeBatch, onSnapshot, getDoc, query, orderBy, limit, getDocs, where, addDoc } from 'firebase/firestore';
+import { collection, doc, writeBatch, onSnapshot, getDoc, getDocs, query, orderBy, limit, updateDoc, where } from 'firebase/firestore';
 
 const INVOICES_COLLECTION = 'invoices';
 const INVENTORY_LOTS_COLLECTION = 'inventory_lots';
@@ -31,12 +31,11 @@ export const getNextInvoiceNumber = async () => {
     return `F-${String(nextNumber).padStart(4, '0')}`;
 };
 
-// --- FUNCIÓN addInvoiceAndProcessStock RECONSTRUIDA PARA KARDEX ---
+// Crea una factura y descuenta el stock del Kardex
 export const addInvoiceAndProcessStock = async (invoiceData, saleLocation) => {
     const batch = writeBatch(db);
     const invoiceRef = doc(collection(db, INVOICES_COLLECTION));
 
-    // Añadimos los campos de saldo al crear la factura
     const fullInvoiceData = {
         ...invoiceData,
         amountPaid: 0,
@@ -47,15 +46,13 @@ export const addInvoiceAndProcessStock = async (invoiceData, saleLocation) => {
         let quantityToDeduct = item.quantity;
         item.batchDetails = [];
 
-        // 1. Buscamos en la nueva colección 'inventory_lots'
         const lotsQuery = query(
             collection(db, INVENTORY_LOTS_COLLECTION),
-            where("productId", "==", item.productId), // Lotes para este producto
-            orderBy('expiryDate', 'asc')              // Ordenados por vencimiento (FEFO)
+            where("productId", "==", item.productId),
+            orderBy('expiryDate', 'asc')
         );
         const lotsSnapshot = await getDocs(lotsQuery);
 
-        // 2. Iteramos sobre los lotes encontrados para descontar el stock
         for (const lotDoc of lotsSnapshot.docs) {
             if (quantityToDeduct === 0) break;
 
@@ -66,29 +63,16 @@ export const addInvoiceAndProcessStock = async (invoiceData, saleLocation) => {
             if (stockInLot > 0) {
                 const quantityTaken = Math.min(quantityToDeduct, stockInLot);
                 
-                // Actualizamos el stock en el lote específico
                 const lotRefToUpdate = doc(db, INVENTORY_LOTS_COLLECTION, lotDoc.id);
                 batch.update(lotRefToUpdate, { [stockField]: stockInLot - quantityTaken });
 
-                // Registramos el detalle para la trazabilidad en la factura
-                item.batchDetails.push({
-                    lotId: lotDoc.id,
-                    lotNumber: lotData.lotNumber,
-                    quantityTaken: quantityTaken,
-                });
+                item.batchDetails.push({ lotId: lotDoc.id, lotNumber: lotData.lotNumber, quantityTaken });
                 
-                // Registramos el movimiento en el Kardex
                 const movementRef = doc(collection(db, MOVEMENTS_COLLECTION));
                 const movementData = {
-                    date: new Date().toISOString(),
-                    type: 'SALIDA_VENTA',
-                    lotId: lotDoc.id,
-                    lotNumber: lotData.lotNumber,
-                    productId: item.productId,
-                    productName: item.name,
-                    fromLocation: saleLocation,
-                    quantity: quantityTaken,
-                    reason: `Factura ${invoiceData.invoiceNumber}`
+                    date: new Date().toISOString(), type: 'SALIDA_VENTA', lotId: lotDoc.id,
+                    lotNumber: lotData.lotNumber, productId: item.productId, productName: item.name,
+                    fromLocation: saleLocation, quantity: quantityTaken, reason: `Factura ${invoiceData.invoiceNumber}`
                 };
                 batch.set(movementRef, movementData);
 
@@ -101,13 +85,11 @@ export const addInvoiceAndProcessStock = async (invoiceData, saleLocation) => {
         }
     }
     
-    // Guardamos la factura con la información completa
     batch.set(invoiceRef, fullInvoiceData);
     await batch.commit();
 };
 
-
-// Registra un pago y actualiza el saldo de la factura
+// --- FUNCIÓN DE PAGO ACTUALIZADA CON LÓGICA DE CENTAVOS ---
 export const addPaymentToInvoice = async (invoice, paymentData) => {
     const batch = writeBatch(db);
     const invoiceRef = doc(db, INVOICES_COLLECTION, invoice.id);
@@ -118,13 +100,20 @@ export const addPaymentToInvoice = async (invoice, paymentData) => {
         paymentDate: new Date().toISOString().split('T')[0],
     });
 
-    // Usamos el saldo actual calculado para evitar errores con datos antiguos
-    const currentBalance = invoice.balanceDue ?? invoice.total;
-    const currentPaid = invoice.amountPaid || 0;
+    // Convertimos todos los valores a centavos para hacer cálculos precisos
+    const totalInCents = Math.round(invoice.total * 100);
+    const currentAmountPaidInCents = Math.round((invoice.amountPaid || 0) * 100);
+    const paymentAmountInCents = Math.round(Number(paymentData.amount) * 100);
 
-    const newAmountPaid = currentPaid + Number(paymentData.amount);
-    const newBalanceDue = invoice.total - newAmountPaid;
-    const newStatus = newBalanceDue <= 0.001 ? 'Pagada' : 'Abonada'; // Usamos un margen pequeño por errores de flotantes
+    const newAmountPaidInCents = currentAmountPaidInCents + paymentAmountInCents;
+    const newBalanceDueInCents = totalInCents - newAmountPaidInCents;
+
+    // Convertimos de vuelta a decimales solo para guardar en la base de datos
+    const newAmountPaid = newAmountPaidInCents / 100;
+    const newBalanceDue = newBalanceDueInCents / 100;
+
+    // La comparación ahora es con enteros, lo que es 100% preciso
+    const newStatus = newBalanceDueInCents <= 0 ? 'Pagada' : 'Abonada';
 
     batch.update(invoiceRef, {
         amountPaid: newAmountPaid,
@@ -135,7 +124,6 @@ export const addPaymentToInvoice = async (invoice, paymentData) => {
     await batch.commit();
 };
 
-
 // Obtiene el historial de pagos de una factura específica
 export const getInvoicePayments = (invoiceId, callback) => {
     const paymentsRef = collection(db, 'invoices', invoiceId, 'payments');
@@ -144,4 +132,44 @@ export const getInvoicePayments = (invoiceId, callback) => {
         const payments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         callback(payments);
     });
+};
+
+// Anula una factura y devuelve el stock al inventario
+export const anullInvoice = async (invoice, reason) => {
+    const batch = writeBatch(db);
+    const invoiceRef = doc(db, INVOICES_COLLECTION, invoice.id);
+
+    batch.update(invoiceRef, {
+        status: 'Anulada',
+        anulledReason: reason,
+    });
+
+    if (invoice.items && invoice.items.length > 0) {
+        for (const item of invoice.items) {
+            if (item.batchDetails && item.batchDetails.length > 0) {
+                for (const detail of item.batchDetails) {
+                    const lotRef = doc(db, INVENTORY_LOTS_COLLECTION, detail.lotId);
+                    const lotSnap = await getDoc(lotRef);
+
+                    if (lotSnap.exists()) {
+                        const lotData = lotSnap.data();
+                        const stockField = invoice.saleLocation === 'SPS' ? 'stockSPS' : 'stockTGU';
+                        const currentStock = lotData[stockField] || 0;
+                        batch.update(lotRef, { [stockField]: currentStock + detail.quantityTaken });
+
+                        const movementRef = doc(collection(db, MOVEMENTS_COLLECTION));
+                        const movementData = {
+                            date: new Date().toISOString(), type: 'ENTRADA_ANULACION', lotId: detail.lotId,
+                            lotNumber: detail.lotNumber, productId: item.productId, productName: item.name,
+                            toLocation: invoice.saleLocation, quantity: detail.quantityTaken,
+                            reason: `Anulación de Factura ${invoice.invoiceNumber}`
+                        };
+                        batch.set(movementRef, movementData);
+                    }
+                }
+            }
+        }
+    }
+
+    await batch.commit();
 };
