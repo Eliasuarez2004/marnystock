@@ -89,7 +89,8 @@ const AddPaymentModal = ({ isOpen, onClose, invoice }) => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         const paymentAmount = Number(amount);
-        if (paymentAmount <= 0 || paymentAmount > balanceDue) {
+        const epsilon = 0.001;
+        if (paymentAmount <= 0 || paymentAmount > (balanceDue + epsilon)) {
             toast.error(`El monto debe ser entre L 0.01 y L ${balanceDue.toFixed(2)}`);
             return;
         }
