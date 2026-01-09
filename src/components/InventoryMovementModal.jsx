@@ -1,5 +1,4 @@
 // src/components/InventoryMovementModal.jsx
-// (Este es un componente nuevo, puedes copiar y pegar)
 import React, { useState } from 'react';
 import { toast } from 'react-toastify';
 import { createInventoryMovement } from '../firebase/inventoryMovementService';

@@ -1,4 +1,4 @@
-// src/pages/Dashboard.jsx (VERSIÓN FINAL CON SINTAXIS CORREGIDA)
+// src/pages/Dashboard.jsx 
 import React, { useState, useEffect } from 'react';
 import { getSmartDashboardData } from '../firebase/dashboardService';
 import { FiTrendingUp, FiAlertCircle, FiArchive, FiUsers, FiPlusCircle } from 'react-icons/fi';

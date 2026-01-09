@@ -1,4 +1,4 @@
-// src/components/ProductInfoModal.jsx (SIMPLIFICADO)
+// src/components/ProductInfoModal.jsx 
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 

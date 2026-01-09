@@ -1,59 +1,38 @@
 import { db } from './config';
-import { collection, getDocs, query, where } from 'firebase/firestore';
-import { startOfMonth, endOfMonth, subMonths, startOfYear, endOfYear, subYears, startOfDay, subDays } from 'date-fns';
+import { collection, getDocs } from 'firebase/firestore';
+import { startOfMonth, endOfMonth, subMonths, startOfYear, endOfYear, subDays, startOfDay } from 'date-fns';
 
-// Función auxiliar que obtiene todos los datos necesarios de una sola vez
 const getAllData = async () => {
-    // Usamos Promise.all para ejecutar todas las lecturas de la base de datos en paralelo, es mucho más rápido.
-    const [productsSnapshot, clientsSnapshot, invoicesSnapshot] = await Promise.all([
-        getDocs(collection(db, 'products')),
+    const [inventoryLotsSnapshot, clientsSnapshot, invoicesSnapshot, productTypesSnapshot] = await Promise.all([
+        getDocs(collection(db, 'inventory_lots')),
         getDocs(collection(db, 'clients')),
-        getDocs(collection(db, 'invoices'))
+        getDocs(collection(db, 'invoices')),
+        getDocs(collection(db, 'products')),
     ]);
 
-    // Procesamos los productos para incluir sus lotes anidados
-    const productsDataPromises = productsSnapshot.docs.map(async (doc) => {
-        const product = { id: doc.id, ...doc.data() };
-        const batchesSnapshot = await getDocs(collection(db, 'products', doc.id, 'batches'));
-        product.batches = batchesSnapshot.docs.map(batchDoc => ({ id: batchDoc.id, ...batchDoc.data() }));
-        return product;
-    });
-
-    // Esperamos a que todos los productos y sus lotes se hayan procesado
-    const products = await Promise.all(productsDataPromises);
+    const lots = inventoryLotsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     const clients = clientsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     const invoices = invoicesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const productTypes = productTypesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-    return { products, clients, invoices };
+    return { lots, clients, invoices, productTypes };
 };
 
-// Función auxiliar que calcula estadísticas para un rango de fechas específico
 const calculateStatsForPeriod = (invoices, startDate, endDate) => {
-    // Filtramos las facturas que caen dentro del rango de fechas
     const periodInvoices = invoices.filter(inv => {
         const invDate = new Date(inv.issueDate);
         return invDate >= startDate && invDate <= endDate;
     });
     
-    // Calculamos los ingresos totales de las facturas pagadas en ese período
-    const totalRevenue = periodInvoices
-        .filter(inv => inv.status === 'Pagada')
-        .reduce((acc, inv) => acc + inv.total, 0);
-        
-    // Calculamos el total de cuentas por cobrar (saldo pendiente) de las facturas no pagadas en ese período
-    const accountsReceivable = periodInvoices
-        .filter(inv => inv.status === 'Pendiente' || inv.status === 'Abonada')
-        .reduce((acc, inv) => acc + (inv.balanceDue ?? inv.total), 0);
+    const totalRevenue = periodInvoices.filter(inv => inv.status === 'Pagada').reduce((acc, inv) => acc + inv.total, 0);
+    const accountsReceivable = periodInvoices.filter(inv => inv.status === 'Pendiente' || inv.status === 'Abonada').reduce((acc, inv) => acc + (inv.balanceDue ?? inv.total), 0);
         
     return { totalRevenue, accountsReceivable };
 };
 
-// --- FUNCIÓN PRINCIPAL EXPORTADA ---
-// Esta es la función que llamará nuestro Dashboard para obtener todos los datos inteligentes.
 export const getSmartDashboardData = async (timeFilter = 'thisMonth') => {
-    const { products, clients, invoices } = await getAllData();
+    const { lots, clients, invoices, productTypes } = await getAllData();
 
-    // 1. Definir los rangos de fechas (período actual y período anterior para comparación)
     const now = new Date();
     let currentPeriodStart, currentPeriodEnd, prevPeriodStart, prevPeriodEnd;
 
@@ -74,16 +53,11 @@ export const getSmartDashboardData = async (timeFilter = 'thisMonth') => {
         prevPeriodEnd = endOfYear(subYears(now, 1));
     }
     
-    // 2. Calcular estadísticas principales y las del período anterior para comparar
     const currentStats = calculateStatsForPeriod(invoices, currentPeriodStart, currentPeriodEnd);
     const prevStats = calculateStatsForPeriod(invoices, prevPeriodStart, prevPeriodEnd);
 
-    // Calcular el porcentaje de cambio en los ingresos
-    const revenueChange = prevStats.totalRevenue === 0 
-        ? (currentStats.totalRevenue > 0 ? 100 : 0) // Si antes era 0, el cambio es 100% o 0%
-        : ((currentStats.totalRevenue - prevStats.totalRevenue) / prevStats.totalRevenue) * 100;
+    const revenueChange = prevStats.totalRevenue === 0 ? (currentStats.totalRevenue > 0 ? 100 : 0) : ((currentStats.totalRevenue - prevStats.totalRevenue) / prevStats.totalRevenue) * 100;
     
-    // 3. Preparar los datos para el gráfico de ventas del período actual
     const salesByDay = {};
     const periodPaidInvoices = invoices.filter(inv => {
         const invDate = new Date(inv.issueDate);
@@ -95,51 +69,49 @@ export const getSmartDashboardData = async (timeFilter = 'thisMonth') => {
         salesByDay[day] += inv.total;
     });
 
-    // 4. Calcular datos que no dependen del filtro de tiempo
-    const totalAccountsReceivable = invoices
-        .filter(inv => inv.status === 'Pendiente' || inv.status === 'Abonada')
-        .reduce((acc, inv) => acc + (inv.balanceDue ?? inv.total), 0);
-        
-    const inventoryValue = products.reduce((acc, prod) => {
-        const totalStock = prod.batches?.reduce((sum, b) => sum + (b.quantitySPS || 0) + (b.quantityTGU || 0), 0) || 0;
-        return acc + (prod.price * totalStock);
+    const inventoryValue = lots.reduce((acc, lot) => {
+        const productInfo = productTypes.find(p => p.id === lot.productId);
+        const price = productInfo?.price || 0;
+        const totalStockInLot = (lot.stockSPS || 0) + (lot.stockTGU || 0);
+        return acc + (price * totalStockInLot);
     }, 0);
     
-    const totalClients = clients.length;
+    const stockByProduct = lots.reduce((acc, lot) => {
+        const totalStockInLot = (lot.stockSPS || 0) + (lot.stockTGU || 0);
+        if (!acc[lot.productId]) {
+            acc[lot.productId] = { id: lot.productId, name: lot.productName, totalStock: 0 };
+        }
+        acc[lot.productId].totalStock += totalStockInLot;
+        return acc;
+    }, {});
+    const lowStockProducts = Object.values(stockByProduct).filter(p => p.totalStock > 0 && p.totalStock <= 10).sort((a, b) => a.totalStock - b.totalStock);
     
-    const lowStockProducts = products
-        .map(prod => ({
-            ...prod,
-            totalStock: prod.batches?.reduce((sum, b) => sum + (b.quantitySPS || 0) + (b.quantityTGU || 0), 0) || 0
-        }))
-        .filter(prod => prod.totalStock > 0 && prod.totalStock < 10)
-        .sort((a, b) => a.totalStock - b.totalStock);
-        
     const expiringSoon = { SPS: [], TGU: [] };
     const today = new Date();
     const ninetyDaysFromNow = new Date();
     ninetyDaysFromNow.setDate(today.getDate() + 90);
-    products.forEach(product => {
-        product.batches?.forEach(batch => {
-            const expiryDate = new Date(batch.expiryDate);
-            if (expiryDate >= today && expiryDate <= ninetyDaysFromNow) {
-                if (batch.quantitySPS > 0) {
-                    expiringSoon.SPS.push({ productName: product.name, lotNumber: batch.lotNumber, expiryDate: batch.expiryDate, quantity: batch.quantitySPS, productId: product.id });
-                }
-                if (batch.quantityTGU > 0) {
-                    expiringSoon.TGU.push({ productName: product.name, lotNumber: batch.lotNumber, expiryDate: batch.expiryDate, quantity: batch.quantityTGU, productId: product.id });
-                }
+
+    lots.forEach(lot => {
+        const expiryDate = new Date(lot.expiryDate);
+        if (expiryDate >= today && expiryDate <= ninetyDaysFromNow) {
+            if (lot.stockSPS > 0) {
+                expiringSoon.SPS.push({ productName: lot.productName, lotNumber: lot.lotNumber, expiryDate: lot.expiryDate, quantity: lot.stockSPS, lotId: lot.id });
             }
-        });
+            if (lot.stockTGU > 0) {
+                expiringSoon.TGU.push({ productName: lot.productName, lotNumber: lot.lotNumber, expiryDate: lot.expiryDate, quantity: lot.stockTGU, lotId: lot.id });
+            }
+        }
     });
     expiringSoon.SPS.sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate));
     expiringSoon.TGU.sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate));
 
-    // 5. Devolver todo el objeto de datos procesado
+    const totalClients = clients.length;
+    const totalAccountsReceivable = invoices.filter(inv => (inv.balanceDue ?? 0) > 0.01).reduce((acc, inv) => acc + inv.balanceDue, 0);
+
     return {
         totalRevenue: currentStats.totalRevenue,
         revenueChange,
-        accountsReceivable: totalAccountsReceivable, // Mostramos el total histórico de CxC
+        accountsReceivable: totalAccountsReceivable,
         inventoryValue,
         totalClients,
         salesChartData: {

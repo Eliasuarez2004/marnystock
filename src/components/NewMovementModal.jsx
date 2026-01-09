@@ -1,4 +1,4 @@
-// src/components/NewMovementModal.jsx (VERSIÓN FINAL CON LÓGICA DE LOTES DINÁMICA)
+// src/components/NewMovementModal.jsx 
 import React, { useState, useEffect, useMemo } from 'react';
 import { toast } from 'react-toastify';
 import { createInventoryMovement } from '../firebase/inventoryService';

@@ -2,10 +2,7 @@
 import React from 'react';
 import { APIProvider, Map, AdvancedMarker } from '@vis.gl/react-google-maps';
 
-// Este componente interno se encarga de geocodificar y renderizar un marcador.
-// Desafortunadamente, los hooks no se pueden usar en un bucle, por lo que necesitamos un subcomponente.
-// NOTA: La geocodificación se ha simplificado aquí. Una implementación más robusta
-// manejaría los límites de la API y el almacenamiento en caché de resultados.
+
 const GeocodedMarker = ({ address }) => {
     const [position, setPosition] = React.useState(null);
 

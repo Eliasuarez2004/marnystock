@@ -1,4 +1,4 @@
-// src/components/BatchEntryModal.jsx (CON ETIQUETAS AÑADIDAS)
+// src/components/BatchEntryModal.jsx 
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { addMultiProductBatchEntry } from '../firebase/productService';

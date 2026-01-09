@@ -1,4 +1,4 @@
-// src/pages/Login.jsx (VERSIÓN FINAL CON BORDE ANIMADO VISIBLE)
+// src/pages/Login.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { signInWithEmailAndPassword } from 'firebase/auth';

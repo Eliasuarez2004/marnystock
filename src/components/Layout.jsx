@@ -3,8 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase/config';
 import { useAuth } from '../context/AuthContext';
-import MarnystockLogo from '../assets/marnystock-logo.png'; // Asegúrate de que el logo esté en src/assets
-
+import MarnystockLogo from '../assets/marnystock-logo.png'; 
 const Layout = ({ children }) => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();

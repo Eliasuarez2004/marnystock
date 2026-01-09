@@ -1,6 +1,5 @@
-// src/pages/Catalog.jsx (VERSIÓN FINAL CON IMPORTACIÓN CORREGIDA)
+// src/pages/Catalog.jsx 
 import React, { useState, useEffect, useMemo } from 'react';
-// --- ¡LA CORRECCIÓN ESTÁ EN ESTA LÍNEA! ---
 import { getProductTypesStream, saveProductInfo, deleteProductAndAssociatedLots } from '../firebase/productService';
 import { getInventoryLotsStream } from '../firebase/inventoryService';
 import AnimatedPage from '../components/AnimatedPage';

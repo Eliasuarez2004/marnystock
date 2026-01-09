@@ -15,7 +15,7 @@ const ProductCard = ({ product, onEdit, onDelete, onViewDetails }) => {
         let soonestExpiryDate = null;
 
         product.batches.forEach(batch => {
-            // --- ¡LA CORRECIÓN DEL BUG ESTÁ AQUÍ! ---
+            
             // Usamos 'stockSPS' y 'stockTGU' en lugar de 'quantitySPS'/'quantityTGU'
             const currentStockInBatch = (batch.stockSPS || 0) + (batch.stockTGU || 0);
             

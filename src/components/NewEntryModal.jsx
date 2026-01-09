@@ -1,4 +1,4 @@
-// src/components/NewEntryModal.jsx (VERSIÓN FINAL CON VENCIMIENTO POR PRODUCTO)
+// src/components/NewEntryModal.jsx 
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { addMultiProductEntry } from '../firebase/inventoryService';

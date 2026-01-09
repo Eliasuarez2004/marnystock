@@ -1,4 +1,4 @@
-// src/firebase/productService.js (VERSIÓN FINAL CON LÓGICA DE EDICIÓN DE IMAGEN CORREGIDA)
+// src/firebase/productService.js 
 import { db, storage } from './config';
 import { collection, doc, writeBatch, onSnapshot, getDocs, query, where, getDoc } from 'firebase/firestore';
 import { ref, deleteObject, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -7,7 +7,6 @@ import { nanoid } from 'nanoid';
 const PRODUCTS_COLLECTION = 'products';
 const INVENTORY_LOTS_COLLECTION = 'inventory_lots';
 
-// --- ¡NUEVA Y MEJORADA LÓGICA PARA SUBIR IMAGEN! ---
 const uploadImage = async (imageFile) => {
     const uniqueId = nanoid();
     // Creamos un nombre de archivo único para evitar colisiones
@@ -16,7 +15,7 @@ const uploadImage = async (imageFile) => {
     return await getDownloadURL(imageRef);
 };
 
-// --- ¡NUEVA Y MEJORADA LÓGICA PARA BORRAR IMAGEN! ---
+
 const deleteImage = async (imageUrl) => {
     if (!imageUrl) return; // Si no hay URL, no hay nada que borrar
     try {

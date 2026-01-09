@@ -27,8 +27,7 @@ const ProductDetailModal = ({ isOpen, onClose, product }) => {
             return { totalSPS: 0, totalTGU: 0, totalStock: 0, inventoryValue: 0, nextExpiryInfo: 'N/A', sortedBatches: [] };
         }
 
-        // --- ¡LA CORRECCIÓN DEL BUG ESTÁ AQUÍ! ---
-        // Usamos 'stockSPS' y 'stockTGU' de nuestra nueva estructura de 'inventory_lots'
+       
         const sps = product.batches.reduce((sum, batch) => sum + (batch.stockSPS || 0), 0);
         const tgu = product.batches.reduce((sum, batch) => sum + (batch.stockTGU || 0), 0);
         const total = sps + tgu;
