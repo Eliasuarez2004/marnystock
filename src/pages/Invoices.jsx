@@ -15,7 +15,7 @@ const statusStyles = {
     'Anulada': 'bg-gray-200 text-gray-600 font-medium',
 };
 
-// --- MODAL DE DETALLE ---
+// --- MODAL DE DETALLE (CON CORRECCIÓN DEFENSIVA) ---
 const InvoiceDetailModal = ({ isOpen, onClose, invoice }) => {
     const [payments, setPayments] = useState([]);
     useEffect(() => {
@@ -47,7 +47,21 @@ const InvoiceDetailModal = ({ isOpen, onClose, invoice }) => {
                         <h3 className="font-bold text-lg mb-2">Artículos Facturados</h3>
                         <table className="w-full text-sm">
                             <thead className="bg-gray-100 sticky top-0"><tr><th className="p-2 text-left">Producto</th><th className="p-2 text-center">Cant.</th><th className="p-2 text-right">Precio Unit.</th><th className="p-2 text-right">Subtotal</th></tr></thead>
-                            <tbody>{invoice.items.map((item, i) => <tr key={i} className="border-b"><td className="p-2">{item.name}</td><td className="p-2 text-center">{item.quantity}</td><td className="p-2 text-right">L {item.price.toFixed(2)}</td><td className="p-2 text-right font-semibold">L {item.subtotal.toFixed(2)}</td></tr>)}</tbody>
+                            <tbody>
+                                {(invoice.items || []).map((item, i) => {
+                                    // Verificación defensiva para evitar errores con datos antiguos
+                                    const price = typeof item.price === 'number' ? item.price : 0;
+                                    const subtotal = (typeof item.subtotal === 'number' ? item.subtotal : (price * (item.quantity || 0)));
+                                    return (
+                                        <tr key={i} className="border-b">
+                                            <td className="p-2">{item.name}</td>
+                                            <td className="p-2 text-center">{item.quantity || 0}</td>
+                                            <td className="p-2 text-right">L {price.toFixed(2)}</td>
+                                            <td className="p-2 text-right font-semibold">L {subtotal.toFixed(2)}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
                         </table>
                     </div>
                     
@@ -56,16 +70,16 @@ const InvoiceDetailModal = ({ isOpen, onClose, invoice }) => {
                         {payments.length > 0 ? (
                             <table className="w-full text-sm">
                                 <thead className="bg-gray-100 sticky top-0"><tr><th className="p-2 text-left">Fecha</th><th className="p-2 text-left">Método</th><th className="p-2 text-left">Referencia</th><th className="p-2 text-right">Monto</th></tr></thead>
-                                <tbody>{payments.map(p => <tr key={p.id} className="border-b"><td className="p-2">{p.paymentDate}</td><td className="p-2">{p.paymentMethod}</td><td className="p-2">{p.reference || '-'}</td><td className="p-2 text-right font-semibold">L {p.amount.toFixed(2)}</td></tr>)}</tbody>
+                                <tbody>{payments.map(p => <tr key={p.id} className="border-b"><td className="p-2">{p.paymentDate}</td><td className="p-2">{p.paymentMethod}</td><td className="p-2">{p.reference || '-'}</td><td className="p-2 text-right font-semibold">L {(p.amount || 0).toFixed(2)}</td></tr>)}</tbody>
                             </table>
                         ) : <p className="text-center text-gray-500 p-4">No hay abonos registrados.</p>}
                     </div>
                 </div>
 
                 <div className="mt-6 pt-4 border-t text-right space-y-1">
-                    <p>Subtotal: <span className="font-semibold">L {invoice.subtotal.toFixed(2)}</span></p>
-                    <p>ISV (15%): <span className="font-semibold">L {invoice.tax.toFixed(2)}</span></p>
-                    <p className="text-xl">Total Factura: <span className="font-bold">L {invoice.total.toFixed(2)}</span></p>
+                    <p>Subtotal: <span className="font-semibold">L {(invoice.subtotal || 0).toFixed(2)}</span></p>
+                    <p>ISV (15%): <span className="font-semibold">L {(invoice.tax || 0).toFixed(2)}</span></p>
+                    <p className="text-xl">Total Factura: <span className="font-bold">L {(invoice.total || 0).toFixed(2)}</span></p>
                     <p className="text-green-600">Total Pagado: <span className="font-bold">L {amountPaid.toFixed(2)}</span></p>
                     <p className="text-2xl text-red-600">Saldo Pendiente: <span className="font-bold">L {balanceDue.toFixed(2)}</span></p>
                 </div>
@@ -75,7 +89,7 @@ const InvoiceDetailModal = ({ isOpen, onClose, invoice }) => {
     );
 };
 
-// --- MODAL PARA AÑADIR PAGO (CON CORRECCIÓN DE PRECISIÓN) ---
+// --- MODAL PARA AÑADIR PAGO ---
 const AddPaymentModal = ({ isOpen, onClose, invoice }) => {
     const [amount, setAmount] = useState('');
     const [paymentMethod, setPaymentMethod] = useState('Efectivo');
@@ -89,16 +103,11 @@ const AddPaymentModal = ({ isOpen, onClose, invoice }) => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         const paymentAmount = Number(amount);
-        
-        // Convertimos a centavos para una comparación 100% precisa
-        const paymentAmountInCents = Math.round(paymentAmount * 100);
-        const balanceDueInCents = Math.round(balanceDue * 100);
-
-        if (paymentAmountInCents <= 0 || paymentAmountInCents > balanceDueInCents) {
+        const epsilon = 0.001;
+        if (paymentAmount <= 0 || paymentAmount > (balanceDue + epsilon)) {
             toast.error(`El monto debe ser entre L 0.01 y L ${balanceDue.toFixed(2)}`);
             return;
         }
-        
         setLoading(true);
         try {
             await addPaymentToInvoice(invoice, { amount: paymentAmount, paymentMethod, reference });
@@ -140,9 +149,7 @@ const AnullInvoiceModal = ({ isOpen, onClose, invoice, onConfirm }) => {
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
-        if(isOpen) {
-            setReason('');
-        }
+        if(isOpen) { setReason(''); }
     }, [isOpen]);
 
     const handleSubmit = async () => {
