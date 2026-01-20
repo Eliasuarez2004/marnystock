@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { getInvoices, getInvoicePayments, addPaymentToInvoice, anullInvoice } from '../firebase/invoiceService';
 import AnimatedPage from '../components/AnimatedPage';
@@ -15,7 +15,35 @@ const statusStyles = {
     'Anulada': 'bg-gray-200 text-gray-600 font-medium',
 };
 
-// --- MODAL DE DETALLE (CON CORRECCIÓN DEFENSIVA) ---
+// --- SUB-COMPONENTE PARA LA FILA DE DETALLES ---
+const DetailItemRow = ({ item }) => {
+    const saleItem = item.lines.find(line => !line.isBonus);
+    const bonusItem = item.lines.find(line => line.isBonus);
+
+    const displayQuantity = () => {
+        if (saleItem && bonusItem) return `${saleItem.quantity} + ${bonusItem.quantity}`;
+        if (saleItem) return saleItem.quantity;
+        if (bonusItem) return bonusItem.quantity;
+        return 0;
+    };
+    
+    const unitPrice = saleItem?.price || bonusItem?.price || 0;
+    const total = saleItem ? saleItem.price * saleItem.quantity : 0;
+
+    return (
+        <tr className="border-b">
+            <td className="p-2">
+                {item.name}
+                {bonusItem && <span className="ml-2 text-xs text-white bg-green-500 px-1.5 py-0.5 rounded-full font-semibold">BONUS</span>}
+            </td>
+            <td className="p-2 text-center">{displayQuantity()}</td>
+            <td className="p-2 text-right">{`L ${unitPrice.toFixed(2)}`}</td>
+            <td className="p-2 text-right font-semibold">{`L ${total.toFixed(2)}`}</td>
+        </tr>
+    );
+};
+
+// --- MODAL DE DETALLE (RECONSTRUIDO) ---
 const InvoiceDetailModal = ({ isOpen, onClose, invoice }) => {
     const [payments, setPayments] = useState([]);
     useEffect(() => {
@@ -24,6 +52,18 @@ const InvoiceDetailModal = ({ isOpen, onClose, invoice }) => {
             return () => unsubscribe();
         }
     }, [isOpen, invoice]);
+
+    const groupedItems = useMemo(() => {
+        if (!invoice?.items) return [];
+        const grouped = {};
+        invoice.items.forEach(item => {
+            if (!grouped[item.productId]) {
+                grouped[item.productId] = { productId: item.productId, name: item.name, lines: [] };
+            }
+            grouped[item.productId].lines.push(item);
+        });
+        return Object.values(grouped);
+    }, [invoice]);
 
     if (!isOpen || !invoice) return null;
 
@@ -46,25 +86,17 @@ const InvoiceDetailModal = ({ isOpen, onClose, invoice }) => {
                     <div>
                         <h3 className="font-bold text-lg mb-2">Artículos Facturados</h3>
                         <table className="w-full text-sm">
-                            <thead className="bg-gray-100 sticky top-0"><tr><th className="p-2 text-left">Producto</th><th className="p-2 text-center">Cant.</th><th className="p-2 text-right">Precio Unit.</th><th className="p-2 text-right">Subtotal</th></tr></thead>
+                            <thead className="bg-gray-100 sticky top-0"><tr>
+                                <th className="p-2 text-left">Producto</th>
+                                <th className="p-2 text-center">Cant. (+Bonus)</th>
+                                <th className="p-2 text-right">Precio Unit.</th>
+                                <th className="p-2 text-right">Subtotal</th>
+                            </tr></thead>
                             <tbody>
-                                {(invoice.items || []).map((item, i) => {
-                                    // Verificación defensiva para evitar errores con datos antiguos
-                                    const price = typeof item.price === 'number' ? item.price : 0;
-                                    const subtotal = (typeof item.subtotal === 'number' ? item.subtotal : (price * (item.quantity || 0)));
-                                    return (
-                                        <tr key={i} className="border-b">
-                                            <td className="p-2">{item.name}</td>
-                                            <td className="p-2 text-center">{item.quantity || 0}</td>
-                                            <td className="p-2 text-right">L {price.toFixed(2)}</td>
-                                            <td className="p-2 text-right font-semibold">L {subtotal.toFixed(2)}</td>
-                                        </tr>
-                                    );
-                                })}
+                                {groupedItems.map(item => <DetailItemRow key={item.productId} item={item} />)}
                             </tbody>
                         </table>
                     </div>
-                    
                     <div>
                         <h3 className="font-bold text-lg mb-2">Historial de Pagos</h3>
                         {payments.length > 0 ? (
@@ -76,12 +108,16 @@ const InvoiceDetailModal = ({ isOpen, onClose, invoice }) => {
                     </div>
                 </div>
 
-                <div className="mt-6 pt-4 border-t text-right space-y-1">
-                    <p>Subtotal: <span className="font-semibold">L {(invoice.subtotal || 0).toFixed(2)}</span></p>
-                    <p>ISV (15%): <span className="font-semibold">L {(invoice.tax || 0).toFixed(2)}</span></p>
-                    <p className="text-xl">Total Factura: <span className="font-bold">L {(invoice.total || 0).toFixed(2)}</span></p>
-                    <p className="text-green-600">Total Pagado: <span className="font-bold">L {amountPaid.toFixed(2)}</span></p>
-                    <p className="text-2xl text-red-600">Saldo Pendiente: <span className="font-bold">L {balanceDue.toFixed(2)}</span></p>
+                <div className="mt-6 pt-4 border-t text-right space-y-1 text-base">
+                    <div className="flex justify-between text-gray-600"><p>Total Bruto:</p><p className="font-semibold">L {(invoice.totalBeforeDiscount || invoice.total || 0).toFixed(2)}</p></div>
+                    <div className="flex justify-between text-red-500"><p>Descuento (Bonificación):</p><p className="font-semibold">- L {(invoice.discountAmount || 0).toFixed(2)}</p></div>
+                    <div className="flex justify-between border-t mt-1 pt-1"><p>Sub-Total:</p><p className="font-semibold">L {(invoice.subtotal || 0).toFixed(2)}</p></div>
+                    <div className="flex justify-between"><p>ISV (15%):</p><p className="font-semibold">L {(invoice.tax || 0).toFixed(2)}</p></div>
+                    <div className="flex justify-between text-2xl font-bold mt-2 text-primary"><p>Total Factura:</p><p>L {(invoice.total || 0).toFixed(2)}</p></div>
+                    <div className="mt-4 pt-4 border-t-2 border-dashed">
+                        <div className="flex justify-between text-green-600"><p>Total Pagado:</p><p className="font-bold">L {amountPaid.toFixed(2)}</p></div>
+                        <div className="flex justify-between text-2xl text-red-600"><p>Saldo Pendiente:</p><p className="font-bold">L {balanceDue.toFixed(2)}</p></div>
+                    </div>
                 </div>
                 <div className="flex justify-end pt-4"><button onClick={onClose} className="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300">Cerrar</button></div>
             </motion.div>
@@ -103,11 +139,14 @@ const AddPaymentModal = ({ isOpen, onClose, invoice }) => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         const paymentAmount = Number(amount);
-        const epsilon = 0.001;
-        if (paymentAmount <= 0 || paymentAmount > (balanceDue + epsilon)) {
+        const paymentAmountInCents = Math.round(paymentAmount * 100);
+        const balanceDueInCents = Math.round(balanceDue * 100);
+
+        if (paymentAmountInCents <= 0 || paymentAmountInCents > balanceDueInCents) {
             toast.error(`El monto debe ser entre L 0.01 y L ${balanceDue.toFixed(2)}`);
             return;
         }
+        
         setLoading(true);
         try {
             await addPaymentToInvoice(invoice, { amount: paymentAmount, paymentMethod, reference });
