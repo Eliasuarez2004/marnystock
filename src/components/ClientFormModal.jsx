@@ -1,75 +1,47 @@
-// src/components/ClientFormModal.jsx
 import React, { useState, useEffect } from 'react';
+import { FiX, FiSave } from 'react-icons/fi';
+import { motion } from 'framer-motion';
 
 const ClientFormModal = ({ isOpen, onClose, onSave, clientToEdit }) => {
-  const [client, setClient] = useState({
-    name: '',
-    rtn: '',
-    email: '',
-    phone: '',
-    address: '',
-  });
+  const [client, setClient] = useState({ name: '', rtn: '', email: '', phone: '', address: '' });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (clientToEdit) {
-      setClient({
-        name: clientToEdit.name || '',
-        rtn: clientToEdit.rtn || '', // Asegura que rtn sea siempre un string
-        email: clientToEdit.email || '',
-        phone: clientToEdit.phone || '',
-        address: clientToEdit.address || '',
-      });
-    } else {
-      setClient({ name: '', rtn: '', email: '', phone: '', address: '' });
-    }
-}, [clientToEdit, isOpen]);
+    if (clientToEdit) setClient(clientToEdit);
+    else setClient({ name: '', rtn: '', email: '', phone: '', address: '' });
+  }, [clientToEdit, isOpen]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault(); setLoading(true);
+    await onSave(client); setLoading(false); onClose();
+  };
 
   if (!isOpen) return null;
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setClient(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      await onSave(client);
-      onClose();
-    } catch (err) {
-      console.error("Error saving client:", err);
-      alert("No se pudo guardar el cliente.");
-    }
-    setLoading(false);
-  };
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-      <div className="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
-        <h2 className="text-2xl font-bold text-secondary mb-4">
-          {clientToEdit ? 'Editar Cliente' : 'Nuevo Cliente'}
-        </h2>
-        <form onSubmit={handleSubmit}>
-          <input type="text" name="name" value={client.name} onChange={handleChange} placeholder="Nombre Completo" required className="w-full p-2 mb-3 border rounded"/>
-          <input type="text" name="rtn" value={client.rtn} onChange={handleChange} placeholder="RTN (opcional)" className="w-full p-2 mb-3 border rounded"/>
-          <input type="email" name="email" value={client.email} onChange={handleChange} placeholder="Correo Electrónico" required className="w-full p-2 mb-3 border rounded"/>
-          <input type="tel" name="phone" value={client.phone} onChange={handleChange} placeholder="Teléfono" required className="w-full p-2 mb-3 border rounded"/>
-          <textarea name="address" value={client.address} onChange={handleChange} placeholder="Dirección" required className="w-full p-2 mb-4 border rounded"></textarea>
-          
-          <div className="flex justify-end gap-4">
-            <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400">
-              Cancelar
-            </button>
-            <button type="submit" disabled={loading} className="px-4 py-2 text-white bg-primary rounded hover:bg-red-700 disabled:bg-red-300">
-              {loading ? 'Guardando...' : 'Guardar'}
-            </button>
-          </div>
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+      <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-lg">
+        <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-bold text-slate-800">{clientToEdit ? 'Editar Cliente' : 'Nuevo Cliente'}</h2>
+            <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><FiX size={24}/></button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <div><label className="text-xs font-bold text-slate-500 uppercase">Nombre</label><input type="text" value={client.name} onChange={e=>setClient({...client, name:e.target.value})} className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 outline-none" required/></div>
+            <div className="grid grid-cols-2 gap-4">
+                <div><label className="text-xs font-bold text-slate-500 uppercase">RTN</label><input type="text" value={client.rtn} onChange={e=>setClient({...client, rtn:e.target.value})} className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 outline-none"/></div>
+                <div><label className="text-xs font-bold text-slate-500 uppercase">Teléfono</label><input type="tel" value={client.phone} onChange={e=>setClient({...client, phone:e.target.value})} className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 outline-none"/></div>
+            </div>
+            <div><label className="text-xs font-bold text-slate-500 uppercase">Email</label><input type="email" value={client.email} onChange={e=>setClient({...client, email:e.target.value})} className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 outline-none" required/></div>
+            <div><label className="text-xs font-bold text-slate-500 uppercase">Dirección</label><textarea value={client.address} onChange={e=>setClient({...client, address:e.target.value})} className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 outline-none h-24" required></textarea></div>
+            
+            <div className="pt-4">
+                <button type="submit" disabled={loading} className="w-full py-3.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2">
+                    {loading ? 'Guardando...' : <><FiSave/> Guardar Cliente</>}
+                </button>
+            </div>
         </form>
-      </div>
+      </motion.div>
     </div>
   );
 };
-
 export default ClientFormModal;

@@ -6,41 +6,8 @@ import { getProductTypesStream } from '../firebase/productService';
 import { getInventoryLotsStream } from '../firebase/inventoryService';
 import { addInvoiceAndProcessStock, getNextInvoiceNumber } from '../firebase/invoiceService';
 import AnimatedPage from '../components/AnimatedPage';
-import { FiTrash2 } from 'react-icons/fi';
+import { FiTrash2, FiShoppingCart, FiUser, FiMapPin, FiPackage, FiCheckCircle } from 'react-icons/fi';
 import { motion, AnimatePresence } from 'framer-motion';
-
-// --- SUB-COMPONENTE PARA LA FILA DE LA FACTURA ---
-const InvoiceItemRow = ({ item, onRemove }) => {
-    const saleItem = item.lines.find(line => !line.isBonus);
-    const bonusItem = item.lines.find(line => line.isBonus);
-
-    const displayQuantity = () => {
-        if (saleItem && bonusItem) {
-            return `${saleItem.quantity} + ${bonusItem.quantity}`;
-        }
-        if (saleItem) return saleItem.quantity;
-        if (bonusItem) return bonusItem.quantity;
-        return 0;
-    };
-    
-    const totalPrice = saleItem ? saleItem.price * saleItem.quantity : 0;
-
-    return (
-        <motion.tr layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: 50 }} className="border-b">
-            <td className="p-2">
-                {item.name}
-                {bonusItem && <span className="ml-2 text-xs text-white bg-green-500 px-1.5 py-0.5 rounded-full font-semibold">BONUS</span>}
-            </td>
-            <td className="p-2 text-center">{displayQuantity()}</td>
-            <td className="p-2 text-right">{saleItem ? `L ${saleItem.price.toFixed(2)}` : 'L 0.00'}</td>
-            <td className="p-2 text-right font-semibold">{`L ${totalPrice.toFixed(2)}`}</td>
-            <td className="p-2 text-center">
-                <button type="button" onClick={() => onRemove(item.productId)} className="text-red-500 hover:text-red-700"><FiTrash2 /></button>
-            </td>
-        </motion.tr>
-    );
-};
-
 
 const CreateInvoice = () => {
     const navigate = useNavigate();
@@ -48,239 +15,200 @@ const CreateInvoice = () => {
     const [productTypes, setProductTypes] = useState([]);
     const [inventoryLots, setInventoryLots] = useState([]);
     
+    // Form State
     const [selectedClientId, setSelectedClientId] = useState('');
     const [saleLocation, setSaleLocation] = useState('');
-    const [invoiceItems, setInvoiceItems] = useState([]);
-    const [invoiceNumber, setInvoiceNumber] = useState('');
-    
     const [productToAdd, setProductToAdd] = useState('');
     const [quantity, setQuantity] = useState('');
     const [bonusQuantity, setBonusQuantity] = useState('');
     
+    // Invoice State
+    const [invoiceItems, setInvoiceItems] = useState([]);
+    const [invoiceNumber, setInvoiceNumber] = useState('');
     const [loading, setLoading] = useState(false);
-    const isInvoiceStarted = invoiceItems.length > 0;
 
     useEffect(() => {
-        const unsubClients = getClients(setClients);
-        const unsubProductTypes = getProductTypesStream(setProductTypes);
-        const unsubInventoryLots = getInventoryLotsStream(setInventoryLots);
-        
+        const u1 = getClients(setClients);
+        const u2 = getProductTypesStream(setProductTypes);
+        const u3 = getInventoryLotsStream(setInventoryLots);
         getNextInvoiceNumber().then(setInvoiceNumber);
-
-        return () => {
-            unsubClients();
-            unsubProductTypes();
-            unsubInventoryLots();
-        };
+        return () => { u1(); u2(); u3(); };
     }, []);
 
-    const getStockForLocation = (productId, location) => {
-        if (!productId || !location) return 0;
-        const relevantLots = inventoryLots.filter(lot => lot.productId === productId);
-        const stockField = location === 'SPS' ? 'stockSPS' : 'stockTGU';
-        return relevantLots.reduce((acc, lot) => acc + (lot[stockField] || 0), 0);
+    const getStock = (pid, loc) => {
+        if (!pid || !loc) return 0;
+        const field = loc === 'SPS' ? 'stockSPS' : 'stockTGU';
+        return inventoryLots.filter(l => l.productId === pid).reduce((acc, l) => acc + (l[field] || 0), 0);
     };
 
     const handleAddItem = () => {
-        if (!saleLocation) { toast.error("Selecciona la sede de la venta."); return; }
-        if (!productToAdd) { toast.warn("Selecciona un producto."); return; }
+        if (!saleLocation) return toast.error("Selecciona la sede primero.");
+        if (!productToAdd) return toast.warn("Selecciona un producto.");
+        const q = Number(quantity) || 0, b = Number(bonusQuantity) || 0;
+        if (q <= 0 && b <= 0) return toast.warn("Ingresa cantidad.");
 
-        const saleQty = Number(quantity) || 0;
-        const bonusQty = Number(bonusQuantity) || 0;
+        const prod = productTypes.find(p => p.id === productToAdd);
+        const stock = getStock(prod.id, saleLocation);
+        const currentInCart = invoiceItems.filter(i => i.productId === prod.id).reduce((s, i) => s + i.quantity, 0);
 
-        if (saleQty <= 0 && bonusQty <= 0) {
-            toast.warn("Ingresa una cantidad de venta o de bonificación.");
-            return;
-        }
+        if (stock < (currentInCart + q + b)) return toast.error(`Stock insuficiente. Disponible: ${stock}`);
 
-        const product = productTypes.find(p => p.id === productToAdd);
-        if (!product) return;
+        const newLines = [];
+        if (q > 0) newLines.push({ itemId: `${prod.id}-s-${Date.now()}`, productId: prod.id, name: prod.name, quantity: q, price: Number(prod.price), isBonus: false });
+        if (b > 0) newLines.push({ itemId: `${prod.id}-b-${Date.now()}`, productId: prod.id, name: prod.name, quantity: b, price: Number(prod.price), isBonus: true });
 
-        const totalQtyNeeded = saleQty + bonusQty;
-        const stockAvailable = getStockForLocation(product.id, saleLocation);
-        const quantityInCart = invoiceItems.filter(item => item.productId === product.id).reduce((sum, item) => sum + item.quantity, 0);
-        
-        if (stockAvailable < (quantityInCart + totalQtyNeeded)) {
-            toast.error(`Stock insuficiente. Ya tienes ${quantityInCart} en el carrito y solo quedan ${stockAvailable} en total.`);
-            return;
-        }
-
-        const newItems = [];
-        if (saleQty > 0) {
-            newItems.push({ 
-                itemId: `${product.id}-sale-${Date.now()}`,
-                productId: product.id, name: product.name, 
-                quantity: saleQty, price: Number(product.price), 
-                isBonus: false
-            });
-        }
-        if (bonusQty > 0) {
-            newItems.push({ 
-                itemId: `${product.id}-bonus-${Date.now()}`,
-                productId: product.id, name: product.name, 
-                quantity: bonusQty, price: Number(product.price), 
-                isBonus: true
-            });
-        }
-
-        setInvoiceItems(prevItems => [...prevItems, ...newItems]);
-        
-        setProductToAdd('');
-        setQuantity('');
-        setBonusQuantity('');
-    };
-
-    const handleRemoveItem = (productIdToRemove) => {
-        setInvoiceItems(invoiceItems.filter(item => item.productId !== productIdToRemove));
-    };
-
-    const handleClearInvoice = () => {
-        setInvoiceItems([]); setSelectedClientId(''); setSaleLocation('');
+        setInvoiceItems([...invoiceItems, ...newLines]);
+        setProductToAdd(''); setQuantity(''); setBonusQuantity('');
     };
 
     const totals = useMemo(() => {
-        const grossTotal = invoiceItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-        const discountAmount = invoiceItems
-            .filter(item => item.isBonus)
-            .reduce((acc, item) => acc + (item.price * item.quantity), 0);
-        const subtotal = grossTotal - discountAmount;
-        const tax = subtotal * 0.15;
-        const total = subtotal + tax;
-        return { totalBeforeDiscount: grossTotal, discountAmount, subtotal, tax, total };
+        const gross = invoiceItems.reduce((a, i) => a + (i.price * i.quantity), 0);
+        const disc = invoiceItems.filter(i => i.isBonus).reduce((a, i) => a + (i.price * i.quantity), 0);
+        const sub = gross - disc;
+        return { totalBeforeDiscount: gross, discountAmount: disc, subtotal: sub, tax: sub * 0.15, total: sub * 1.15 };
     }, [invoiceItems]);
 
-    const handleSubmitInvoice = async (e) => {
-        e.preventDefault();
-        if (!selectedClientId || !saleLocation || invoiceItems.length === 0) { toast.error("Completa Cliente, Sede y al menos un producto."); return; }
+    const handleSubmit = async () => {
+        if (!selectedClientId || !saleLocation || !invoiceItems.length) return toast.error("Faltan datos.");
         setLoading(true);
         const client = clients.find(c => c.id === selectedClientId);
-        
         const invoiceData = {
-            invoiceNumber,
-            issueDate: new Date().toISOString().split('T')[0],
-            status: 'Pendiente',
-            clientId: client.id,
-            clientName: client.name,
-            saleLocation,
-            items: invoiceItems.map(({itemId, ...item}) => item),
-            totalBeforeDiscount: totals.totalBeforeDiscount,
-            discountAmount: totals.discountAmount,
-            subtotal: totals.subtotal,
-            tax: totals.tax,
-            total: totals.total
+            invoiceNumber, issueDate: new Date().toISOString().split('T')[0], status: 'Pendiente',
+            clientId: client.id, clientName: client.name, saleLocation, items: invoiceItems, ...totals
         };
-
-        try {
-            await addInvoiceAndProcessStock(invoiceData, saleLocation);
-            toast.success(`Factura ${invoiceNumber} generada!`);
-            navigate('/facturas');
-        } catch (error) { toast.error(`Error: ${error.message}`); console.error(error); }
+        try { await addInvoiceAndProcessStock(invoiceData, saleLocation); toast.success("Factura Creada"); navigate('/facturas'); } 
+        catch (e) { toast.error(e.message); }
         setLoading(false);
     };
 
-    const groupedInvoiceItems = useMemo(() => {
-        const grouped = {};
-        invoiceItems.forEach(item => {
-            if (!grouped[item.productId]) {
-                grouped[item.productId] = {
-                    productId: item.productId,
-                    name: item.name,
-                    lines: []
-                };
-            }
-            grouped[item.productId].lines.push(item);
+    // Group items visually for the table
+    const groupedDisplay = useMemo(() => {
+        const g = {};
+        invoiceItems.forEach(i => {
+            if(!g[i.productId]) g[i.productId] = { ...i, qty: 0, bonus: 0 };
+            if(i.isBonus) g[i.productId].bonus += i.quantity;
+            else g[i.productId].qty += i.quantity;
         });
-        return Object.values(grouped);
+        return Object.values(g);
     }, [invoiceItems]);
 
     return (
         <AnimatedPage>
-            <div className="flex justify-between items-center mb-6">
-                <h1 className="text-3xl font-bold text-secondary">Crear Nueva Factura ({invoiceNumber})</h1>
-                {isInvoiceStarted && (
-                    <button onClick={handleClearInvoice} className="px-4 py-2 text-sm font-semibold text-white bg-yellow-600 rounded-md hover:bg-yellow-700 transition-colors">
-                        Limpiar Factura
-                    </button>
-                )}
-            </div>
-            
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-                <div className="lg:col-span-2 space-y-4">
-                    <div className="bg-white p-4 rounded-lg shadow-md">
-                        <label className="block text-sm font-bold text-gray-700 mb-2">1. Cliente</label>
-                        <select value={selectedClientId} onChange={(e) => setSelectedClientId(e.target.value)} className="w-full p-2 border rounded disabled:bg-gray-200 disabled:cursor-not-allowed" disabled={isInvoiceStarted}>
-                            <option value="">-- Elige un cliente --</option>
-                            {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-                    </div>
-                    <div className="bg-white p-4 rounded-lg shadow-md">
-                        <label className="block text-sm font-bold text-gray-700 mb-2">2. Sede de Venta</label>
-                        <select value={saleLocation} onChange={(e) => setSaleLocation(e.target.value)} className="w-full p-2 border rounded disabled:bg-gray-200 disabled:cursor-not-allowed" disabled={isInvoiceStarted}>
-                            <option value="">-- Elige una sede --</option>
-                            <option value="SPS">San Pedro Sula</option>
-                            <option value="TGU">Tegucigalpa</option>
-                        </select>
-                    </div>
-                    <div className="bg-white p-4 rounded-lg shadow-md">
-                        <label className="block text-sm font-bold text-gray-700 mb-2">3. Añadir Productos</label>
-                        <select value={productToAdd} onChange={(e) => setProductToAdd(e.target.value)} className="w-full p-2 border rounded mb-3" disabled={!saleLocation}>
-                            <option value="">-- Elige un producto --</option>
-                            {productTypes.map(p => (
-                                <option key={p.id} value={p.id}>
-                                    {p.name} (Stock: {getStockForLocation(p.id, saleLocation)})
-                                </option>
-                            ))}
-                        </select>
-                        <div className="grid grid-cols-2 gap-2">
-                            <div>
-                                <label htmlFor="quantity" className="block text-xs font-medium text-gray-600">Cant. (Venta)</label>
-                                <input id="quantity" type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)} min="0" className="w-full p-2 border rounded" placeholder="Ej: 12"/>
-                            </div>
-                            <div>
-                                <label htmlFor="bonusQuantity" className="block text-xs font-medium text-gray-600">Cant. (Bonificación)</label>
-                                <input id="bonusQuantity" type="number" value={bonusQuantity} onChange={(e) => setBonusQuantity(e.target.value)} min="0" className="w-full p-2 border rounded" placeholder="Ej: 1"/>
+            <div className="min-h-screen bg-slate-50 p-6 md:p-8">
+                <div className="flex justify-between items-center mb-8">
+                    <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Nueva Factura <span className="text-slate-400 font-light text-xl ml-2">#{invoiceNumber}</span></h1>
+                    {invoiceItems.length > 0 && <button onClick={() => setInvoiceItems([])} className="text-red-500 hover:text-red-700 font-medium text-sm">Limpiar Todo</button>}
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                    {/* LEFT COLUMN: INPUTS */}
+                    <div className="lg:col-span-5 space-y-6">
+                        {/* Config Card */}
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                            <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2"><FiUser/> Datos Generales</h3>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Cliente</label>
+                                    <select value={selectedClientId} onChange={e => setSelectedClientId(e.target.value)} disabled={invoiceItems.length > 0} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 outline-none transition-all">
+                                        <option value="">Seleccionar Cliente...</option>
+                                        {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Sede de Venta</label>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        {['SPS', 'TGU'].map(loc => (
+                                            <button key={loc} onClick={() => !invoiceItems.length && setSaleLocation(loc)} className={`p-3 rounded-xl border font-medium transition-all ${saleLocation === loc ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+                                                {loc === 'SPS' ? 'San Pedro Sula' : 'Tegucigalpa'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                        <button type="button" onClick={handleAddItem} className="w-full mt-3 bg-blue-500 text-white p-2 rounded hover:bg-blue-600 transition-colors">Añadir a la Factura</button>
-                    </div>
-                </div>
-                <div className="lg:col-span-3 bg-white p-6 rounded-lg shadow-md">
-                    <h2 className="text-2xl font-bold border-b pb-2 mb-4">Resumen</h2>
-                    <div className="overflow-y-auto min-h-[200px] max-h-[400px]">
-                        <table className="w-full text-sm">
-                            <thead className="sticky top-0 bg-white"><tr className="border-b">
-                                <th className="p-2 text-left">Producto</th>
-                                <th className="p-2 text-center">Cant. (+Bonus)</th>
-                                <th className="p-2 text-right">Precio</th>
-                                <th className="p-2 text-right">Total</th>
-                                <th></th>
-                            </tr></thead>
-                            <tbody>
-                                <AnimatePresence>
-                                    {groupedInvoiceItems.map(item => (
-                                        <InvoiceItemRow key={item.productId} item={item} onRemove={handleRemoveItem} />
-                                    ))}
-                                </AnimatePresence>
-                            </tbody>
-                        </table>
-                        {!isInvoiceStarted && <p className="text-center text-gray-400 p-8">Añade productos para verlos aquí.</p>}
-                    </div>
-                    {isInvoiceStarted && (
-                        <div className="mt-6 pt-4 border-t-2 border-dashed text-right space-y-1 text-base">
-                            <div className="flex justify-between"><p className="text-gray-600">Total Bruto:</p><p className="font-semibold">L {totals.totalBeforeDiscount.toFixed(2)}</p></div>
-                            <div className="flex justify-between text-red-500"><p>Descuento (Bonificación):</p><p className="font-semibold">- L {totals.discountAmount.toFixed(2)}</p></div>
-                            <div className="flex justify-between border-t mt-1 pt-1"><p className="text-gray-600">Sub-Total:</p><p className="font-semibold">L {totals.subtotal.toFixed(2)}</p></div>
-                            <div className="flex justify-between"><p className="text-gray-600">ISV (15%):</p><p className="font-semibold">L {totals.tax.toFixed(2)}</p></div>
-                            <div className="flex justify-between text-2xl font-bold mt-2 text-primary"><p>Total a Pagar:</p><p>L {totals.total.toFixed(2)}</p></div>
-                            <button onClick={handleSubmitInvoice} disabled={loading} className="w-full mt-6 px-6 py-3 text-lg font-semibold text-white bg-green-600 rounded-md hover:bg-green-700 disabled:bg-green-300">
-                                {loading ? 'Generando...' : 'Generar Factura'}
+
+                        {/* Product Add Card */}
+                        <div className={`bg-white p-6 rounded-2xl shadow-sm border border-slate-100 transition-opacity ${!saleLocation ? 'opacity-50 pointer-events-none' : ''}`}>
+                            <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2"><FiPackage/> Agregar Productos</h3>
+                            <select value={productToAdd} onChange={e => setProductToAdd(e.target.value)} className="w-full p-3 mb-4 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 outline-none">
+                                <option value="">Buscar producto...</option>
+                                {productTypes.map(p => (
+                                    <option key={p.id} value={p.id}>{p.name} — Stock: {getStock(p.id, saleLocation)}</option>
+                                ))}
+                            </select>
+                            <div className="grid grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label className="text-xs font-bold text-slate-500">CANTIDAD</label>
+                                    <input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} className="w-full mt-1 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 outline-none font-bold text-slate-800" placeholder="0"/>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-emerald-600">BONIFICACIÓN (12+1)</label>
+                                    <input type="number" value={bonusQuantity} onChange={e => setBonusQuantity(e.target.value)} className="w-full mt-1 p-3 bg-emerald-50 border border-emerald-200 rounded-xl focus:border-emerald-500 outline-none font-bold text-emerald-800" placeholder="0"/>
+                                </div>
+                            </div>
+                            <button onClick={handleAddItem} className="w-full py-3 bg-slate-800 text-white font-bold rounded-xl shadow-lg hover:bg-slate-700 transition-transform active:scale-95">
+                                Agregar a la Orden
                             </button>
                         </div>
-                    )}
+                    </div>
+
+                    {/* RIGHT COLUMN: PREVIEW */}
+                    <div className="lg:col-span-7 flex flex-col h-full">
+                        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 flex-grow flex flex-col overflow-hidden">
+                            <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                                <h3 className="font-bold text-slate-700 flex items-center gap-2"><FiShoppingCart/> Resumen de Orden</h3>
+                                <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-2 py-1 rounded-md">{invoiceItems.length} Items</span>
+                            </div>
+                            
+                            <div className="flex-grow overflow-y-auto p-0">
+                                {invoiceItems.length === 0 ? (
+                                    <div className="h-full flex flex-col items-center justify-center text-slate-300">
+                                        <FiShoppingCart size={48} className="mb-4 opacity-50"/>
+                                        <p>El carrito está vacío</p>
+                                    </div>
+                                ) : (
+                                    <table className="w-full text-sm text-left">
+                                        <thead className="bg-white text-slate-500 sticky top-0 shadow-sm">
+                                            <tr><th className="p-4">Producto</th><th className="p-4 text-center">Cant.</th><th className="p-4 text-right">Total</th><th className="p-4"></th></tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-50">
+                                            <AnimatePresence>
+                                                {groupedDisplay.map(item => (
+                                                    <motion.tr key={item.productId} initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="hover:bg-slate-50">
+                                                        <td className="p-4">
+                                                            <div className="font-medium text-slate-800">{item.name}</div>
+                                                            {item.bonus > 0 && <span className="text-xs text-emerald-600 font-bold flex items-center gap-1"><FiCheckCircle size={10}/> {item.bonus} Bonificado</span>}
+                                                        </td>
+                                                        <td className="p-4 text-center font-bold text-slate-700">{item.qty}</td>
+                                                        <td className="p-4 text-right font-medium text-slate-600">L {(item.qty * item.price).toFixed(2)}</td>
+                                                        <td className="p-4 text-center">
+                                                            <button onClick={() => setInvoiceItems(invoiceItems.filter(i => i.productId !== item.productId))} className="text-rose-400 hover:text-rose-600"><FiTrash2/></button>
+                                                        </td>
+                                                    </motion.tr>
+                                                ))}
+                                            </AnimatePresence>
+                                        </tbody>
+                                    </table>
+                                )}
+                            </div>
+
+                            {/* TOTALS FOOTER */}
+                            <div className="bg-slate-50 p-6 border-t border-slate-200 space-y-2">
+                                <div className="flex justify-between text-sm text-slate-500"><span>Subtotal:</span> <span>L {totals.subtotal.toFixed(2)}</span></div>
+                                <div className="flex justify-between text-sm text-slate-500"><span>ISV (15%):</span> <span>L {totals.tax.toFixed(2)}</span></div>
+                                <div className="flex justify-between items-center pt-4 border-t border-slate-200">
+                                    <span className="text-lg font-bold text-slate-800">Total a Pagar</span>
+                                    <span className="text-2xl font-black text-blue-600">L {totals.total.toFixed(2)}</span>
+                                </div>
+                                <button onClick={handleSubmit} disabled={loading || !invoiceItems.length} className="w-full mt-4 py-4 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition-all disabled:opacity-50 disabled:shadow-none">
+                                    {loading ? 'Procesando...' : 'Confirmar Factura'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </AnimatedPage>
     );
 };
-
 export default CreateInvoice;
