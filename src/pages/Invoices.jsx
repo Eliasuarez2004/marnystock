@@ -3,50 +3,57 @@ import { Link } from 'react-router-dom';
 import { getInvoices, getInvoicePayments, addPaymentToInvoice, anullInvoice } from '../firebase/invoiceService';
 import AnimatedPage from '../components/AnimatedPage';
 import { toast } from 'react-toastify';
-import { FiEye, FiPlus, FiXOctagon, FiSearch, FiFileText, FiX, FiCheck, FiDollarSign } from 'react-icons/fi';
+import { FiEye, FiPlus, FiXOctagon, FiSearch, FiFileText, FiX, FiCheck, FiDollarSign, FiGift } from 'react-icons/fi';
 import { motion, AnimatePresence } from 'framer-motion';
 
-// --- ESTILOS DE ESTADO MEJORADOS ---
-const statusStyles = {
-    'Pagada': 'bg-emerald-100 text-emerald-700 border border-emerald-200',
-    'Abonada': 'bg-blue-100 text-blue-700 border border-blue-200',
-    'Pendiente': 'bg-amber-100 text-amber-700 border border-amber-200',
-    'Anulada': 'bg-slate-100 text-slate-500 border border-slate-200 line-through decoration-slate-400',
+// --- CONFIGURACIÓN DE ESTILOS ---
+const STATUS_STYLES = {
+    'Pagada': 'bg-emerald-100 text-emerald-700 border-emerald-200',
+    'Abonada': 'bg-blue-100 text-blue-700 border-blue-200',
+    'Pendiente': 'bg-amber-100 text-amber-700 border-amber-200',
+    'Anulada': 'bg-slate-100 text-slate-500 border-slate-200 line-through decoration-slate-400',
 };
 
-// --- COMPONENTE FILA DE DETALLE ---
+// ==========================================
+// SUB-COMPONENTE: FILA DE ARTÍCULO EN DETALLE
+// ==========================================
 const DetailItemRow = ({ item }) => {
-    const saleItem = item.lines.find(line => !line.isBonus);
-    const bonusItem = item.lines.find(line => line.isBonus);
+    // Buscamos la línea de venta (la que tiene precio) y la de bono
+    const saleLine = item.lines.find(l => !l.isBonus);
+    const bonusLine = item.lines.find(l => l.isBonus);
 
-    const displayQuantity = () => {
-        if (saleItem && bonusItem) return `${saleItem.quantity} + ${bonusItem.quantity}`;
-        if (saleItem) return saleItem.quantity;
-        if (bonusItem) return bonusItem.quantity;
-        return 0;
-    };
-    
-    const unitPrice = saleItem?.price || bonusItem?.price || 0;
-    const total = saleItem ? saleItem.price * saleItem.quantity : 0;
+    const price = saleLine?.price || 0;
+    const saleQty = saleLine?.quantity || 0;
+    const bonusQty = bonusLine?.quantity || 0;
+    const totalLine = price * saleQty;
 
     return (
         <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50 transition-colors">
-            <td className="p-3 text-slate-700">
-                <div className="font-medium">{item.name}</div>
-                {bonusItem && <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-600 border border-emerald-200 mt-1">BONIFICADO</span>}
+            <td className="p-3">
+                <div className="font-bold text-slate-800">{item.name}</div>
+                {bonusQty > 0 && (
+                    <div className="inline-flex items-center gap-1 text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100 mt-1 uppercase">
+                        <FiGift size={10}/> Incluye {bonusQty} Bonificados
+                    </div>
+                )}
             </td>
-            <td className="p-3 text-center text-slate-600">{displayQuantity()}</td>
-            <td className="p-3 text-right text-slate-600 font-mono text-xs">{`L ${unitPrice.toFixed(2)}`}</td>
-            <td className="p-3 text-right font-semibold text-slate-800 font-mono">{`L ${total.toFixed(2)}`}</td>
+            <td className="p-3 text-center font-bold text-slate-700">
+                {saleQty} {bonusQty > 0 && <span className="text-emerald-500">+{bonusQty}</span>}
+            </td>
+            <td className="p-3 text-right text-slate-500 font-mono">L {price.toFixed(2)}</td>
+            <td className="p-3 text-right font-black text-slate-900 font-mono">L {totalLine.toFixed(2)}</td>
         </tr>
     );
 };
 
-// --- MODAL DE DETALLE (DISEÑO CLEAN) ---
+// ==========================================
+// COMPONENTE: MODAL DE DETALLE DE FACTURA
+// ==========================================
 const InvoiceDetailModal = ({ isOpen, onClose, invoice }) => {
     const [payments, setPayments] = useState([]);
+    
     useEffect(() => {
-        if (isOpen && invoice) {
+        if (isOpen && invoice?.id) {
             const unsubscribe = getInvoicePayments(invoice.id, setPayments);
             return () => unsubscribe();
         }
@@ -54,106 +61,122 @@ const InvoiceDetailModal = ({ isOpen, onClose, invoice }) => {
 
     const groupedItems = useMemo(() => {
         if (!invoice?.items) return [];
-        const grouped = {};
+        const groups = {};
         invoice.items.forEach(item => {
-            if (!grouped[item.productId]) {
-                grouped[item.productId] = { productId: item.productId, name: item.name, lines: [] };
+            if (!groups[item.productId]) {
+                groups[item.productId] = { productId: item.productId, name: item.name, lines: [] };
             }
-            grouped[item.productId].lines.push(item);
+            groups[item.productId].lines.push(item);
         });
-        return Object.values(grouped);
+        return Object.values(groups);
     }, [invoice]);
 
     if (!isOpen || !invoice) return null;
 
-    const balanceDue = invoice.balanceDue ?? invoice.total;
-    const amountPaid = invoice.amountPaid || 0;
-    
+    // Mapeo de campos correctos
+    const {
+        subtotalBruto = 0,
+        globalDiscount = 0,
+        subtotalNeto = 0,
+        tax = 0,
+        total = 0,
+        amountPaid = 0,
+        balanceDue = 0,
+        saleType,
+        businessType,
+        saleLocation,
+        issueDate,
+        invoiceNumber
+    } = invoice;
+
     return (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex justify-center items-center p-4">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl max-h-[95vh] flex flex-col overflow-hidden">
                 
-                {/* Header Modal */}
+                {/* Header */}
                 <div className="bg-slate-50 p-6 border-b border-slate-200 flex justify-between items-start">
                     <div>
-                        <h2 className="text-xl font-bold text-slate-800">Factura <span className="text-blue-600 font-mono">#{invoice.invoiceNumber}</span></h2>
-                        <div className="flex flex-col sm:flex-row sm:gap-4 text-sm text-slate-500 mt-1">
-                            <span><strong className="text-slate-700">Cliente:</strong> {invoice.clientName}</span>
-                            <span className="hidden sm:inline">•</span>
-                            <span>{invoice.issueDate}</span>
-                            <span className="hidden sm:inline">•</span>
-                            <span>{invoice.saleLocation}</span>
+                        <div className="flex items-center gap-3 mb-2">
+                            <h2 className="text-2xl font-black text-slate-800 tracking-tighter">FACTURA <span className="text-blue-600 font-mono">#{invoiceNumber}</span></h2>
+                            <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${saleType === 'Contado' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-amber-100 text-amber-700 border-amber-200'}`}>
+                                {saleType}
+                            </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-sm">
+                            <p className="text-slate-500 font-medium">Cliente: <span className="text-slate-900 font-bold">{invoice.clientName}</span></p>
+                            <p className="text-slate-500 font-medium">Negocio: <span className="text-slate-900 font-bold">{businessType}</span></p>
+                            <p className="text-slate-500 font-medium">Fecha: <span className="text-slate-900 font-bold">{issueDate}</span></p>
+                            <p className="text-slate-500 font-medium">Sede: <span className="text-slate-900 font-bold">{saleLocation === 'SPS' ? 'San Pedro Sula' : 'Tegucigalpa'}</span></p>
                         </div>
                     </div>
-                    <button onClick={onClose} className="p-2 bg-white border border-slate-200 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"><FiX size={20}/></button>
+                    <button onClick={onClose} className="p-2 bg-white border border-slate-200 rounded-full text-slate-400 hover:text-rose-500 transition-all shadow-sm"><FiX size={24}/></button>
                 </div>
-                
-                {/* Scrollable Content */}
+
+                {/* Body */}
                 <div className="overflow-y-auto p-6 space-y-8 bg-white custom-scrollbar">
-                    
-                    {/* Tabla Productos */}
-                    <div>
-                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Detalle de Compra</h3>
-                        <div className="border border-slate-200 rounded-xl overflow-hidden">
-                            <table className="w-full text-sm">
-                                <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
-                                    <tr>
-                                        <th className="p-3 text-left">Producto</th>
-                                        <th className="p-3 text-center">Cant.</th>
-                                        <th className="p-3 text-right">Unitario</th>
-                                        <th className="p-3 text-right">Subtotal</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {groupedItems.map(item => <DetailItemRow key={item.productId} item={item} />)}
-                                </tbody>
-                            </table>
-                        </div>
+                    {/* Lista Artículos */}
+                    <div className="border border-slate-100 rounded-2xl overflow-hidden shadow-sm">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-slate-50 text-slate-400 font-bold text-[10px] uppercase tracking-widest border-b">
+                                <tr><th className="p-4">Descripción</th><th className="p-4 text-center">Cant.</th><th className="p-4 text-right">Unitario</th><th className="p-4 text-right">Subtotal</th></tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                                {groupedItems.map(item => <DetailItemRow key={item.productId} item={item} />)}
+                            </tbody>
+                        </table>
                     </div>
 
-                    {/* Historial Pagos */}
+                    {/* Pagos / Abonos */}
                     <div>
-                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Historial de Pagos</h3>
+                        <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3 ml-1">Historial de Transacciones</h3>
                         {payments.length > 0 ? (
-                            <div className="border border-slate-200 rounded-xl overflow-hidden">
-                                <table className="w-full text-sm">
-                                    <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200"><tr><th className="p-3 text-left">Fecha</th><th className="p-3 text-left">Método</th><th className="p-3 text-left">Ref</th><th className="p-3 text-right">Monto</th></tr></thead>
-                                    <tbody className="divide-y divide-slate-100">
+                            <div className="border border-slate-100 rounded-2xl overflow-hidden">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100">
+                                        <tr><th className="p-4">Fecha</th><th className="p-4">Método</th><th className="p-4 text-right">Monto Recibido</th></tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-50">
                                         {payments.map(p => (
-                                            <tr key={p.id}>
-                                                <td className="p-3 text-slate-600">{p.paymentDate}</td>
-                                                <td className="p-3 text-slate-600">{p.paymentMethod}</td>
-                                                <td className="p-3 text-slate-400 text-xs">{p.reference || '-'}</td>
-                                                <td className="p-3 text-right font-bold text-emerald-600 font-mono">L {(p.amount || 0).toFixed(2)}</td>
+                                            <tr key={p.id} className="text-slate-600">
+                                                <td className="p-4">{p.paymentDate}</td>
+                                                <td className="p-4">{p.paymentMethod}</td>
+                                                <td className="p-4 text-right font-black text-emerald-600 font-mono">L {p.amount.toFixed(2)}</td>
                                             </tr>
                                         ))}
                                     </tbody>
                                 </table>
                             </div>
                         ) : (
-                            <div className="bg-slate-50 rounded-xl p-4 text-center text-slate-400 text-sm border border-dashed border-slate-200">
-                                No se han registrado abonos aún.
+                            <div className="bg-slate-50 border border-dashed border-slate-200 rounded-2xl p-6 text-center text-slate-400 font-medium italic">
+                                No se registran abonos previos.
                             </div>
                         )}
                     </div>
                 </div>
 
                 {/* Footer Totales */}
-                <div className="bg-slate-50 p-6 border-t border-slate-200">
-                    <div className="grid grid-cols-2 gap-8">
-                        <div className="space-y-1 text-sm">
-                            <div className="flex justify-between text-slate-500"><span>Subtotal:</span> <span>L {(invoice.subtotal || 0).toFixed(2)}</span></div>
-                            <div className="flex justify-between text-slate-500"><span>ISV (15%):</span> <span>L {(invoice.tax || 0).toFixed(2)}</span></div>
-                            <div className="flex justify-between text-rose-500 font-medium pt-1"><span>Descuentos:</span> <span>- L {(invoice.discountAmount || 0).toFixed(2)}</span></div>
+                <div className="bg-slate-900 p-8 text-white">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div className="space-y-2 border-r border-slate-800 pr-8">
+                            <div className="flex justify-between text-xs text-slate-400"><span>SUBTOTAL BRUTO:</span><span className="font-mono">L {subtotalBruto.toFixed(2)}</span></div>
+                            <div className="flex justify-between text-xs text-rose-400 font-bold"><span>DESCUENTO GLOBAL:</span><span className="font-mono">- L {globalDiscount.toFixed(2)}</span></div>
+                            <div className="flex justify-between text-sm text-slate-200 border-t border-slate-800 pt-2 font-bold"><span>SUBTOTAL NETO:</span><span className="font-mono">L {subtotalNeto.toFixed(2)}</span></div>
+                            <div className="flex justify-between text-xs text-slate-400"><span>ISV (15%):</span><span className="font-mono text-rose-300">L {tax.toFixed(2)}</span></div>
                         </div>
-                        <div className="space-y-2 text-right">
-                            <div className="text-xs font-bold text-slate-400 uppercase">Total Factura</div>
-                            <div className="text-2xl font-black text-slate-800">L {(invoice.total || 0).toFixed(2)}</div>
-                            <div className="flex justify-end gap-3 text-sm pt-2">
-                                <span className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded-md font-bold">Pagado: L {amountPaid.toFixed(2)}</span>
-                                <span className={`px-2 py-1 rounded-md font-bold ${balanceDue > 0.01 ? 'bg-rose-100 text-rose-700' : 'bg-slate-200 text-slate-500'}`}>
-                                    Pendiente: L {balanceDue.toFixed(2)}
-                                </span>
+
+                        <div className="flex flex-col justify-center items-end">
+                            <span className="text-[10px] font-black text-blue-400 uppercase tracking-[0.3em] mb-1">Total Facturado</span>
+                            <div className="text-5xl font-black text-white font-mono tracking-tighter mb-4">L {total.toFixed(2)}</div>
+                            
+                            <div className="flex gap-3 w-full">
+                                <div className="flex-1 bg-slate-800/50 rounded-2xl p-3 border border-slate-800 text-center">
+                                    <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Pagado</p>
+                                    <p className="text-lg font-black text-emerald-400 font-mono">L {amountPaid.toFixed(2)}</p>
+                                </div>
+                                <div className="flex-1 bg-slate-800/50 rounded-2xl p-3 border border-slate-800 text-center">
+                                    <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Saldo Pendiente</p>
+                                    <p className={`text-lg font-black font-mono ${balanceDue > 0 ? 'text-rose-500' : 'text-slate-500'}`}>L {balanceDue.toFixed(2)}</p>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -163,7 +186,9 @@ const InvoiceDetailModal = ({ isOpen, onClose, invoice }) => {
     );
 };
 
-// --- MODAL AÑADIR PAGO (ESTILIZADO) ---
+// ==========================================
+// COMPONENTE: MODAL AÑADIR PAGO
+// ==========================================
 const AddPaymentModal = ({ isOpen, onClose, invoice }) => {
     const [amount, setAmount] = useState('');
     const [paymentMethod, setPaymentMethod] = useState('Efectivo');
@@ -172,99 +197,61 @@ const AddPaymentModal = ({ isOpen, onClose, invoice }) => {
 
     if (!isOpen || !invoice) return null;
 
-    const balanceDue = invoice.balanceDue ?? invoice.total;
-
     const handleSubmit = async (e) => {
         e.preventDefault();
         const paymentAmount = Number(amount);
-        // Validación básica
-        if (paymentAmount <= 0 || paymentAmount > balanceDue + 0.01) { // +0.01 por redondeo
-            toast.error(`Monto inválido. Máximo: L ${balanceDue.toFixed(2)}`);
-            return;
+        if (paymentAmount <= 0 || paymentAmount > invoice.balanceDue + 0.01) {
+            toast.error("Monto inválido."); return;
         }
         setLoading(true);
         try {
             await addPaymentToInvoice(invoice, { amount: paymentAmount, paymentMethod, reference });
-            toast.success('Abono registrado');
-            onClose();
-        } catch (error) { toast.error('Error al registrar abono'); }
+            toast.success('Abono registrado'); onClose();
+        } catch (error) { toast.error('Error al registrar'); }
         setLoading(false);
     };
 
     return (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex justify-center items-center p-4">
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-md">
-                <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold text-slate-800">Registrar Abono</h2>
-                    <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><FiX size={20}/></button>
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md">
+                <h2 className="text-xl font-black text-slate-800 mb-6 uppercase tracking-tight">Registrar Abono</h2>
+                <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 mb-6 flex justify-between items-center">
+                    <span className="text-blue-600 font-bold text-xs uppercase">Pendiente de Cobro:</span>
+                    <span className="text-blue-900 font-black text-xl font-mono">L {invoice.balanceDue.toFixed(2)}</span>
                 </div>
-                
-                <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 mb-6 flex justify-between items-center">
-                    <span className="text-blue-600 font-medium text-sm">Saldo Pendiente</span>
-                    <span className="text-blue-800 font-bold text-lg">L {balanceDue.toFixed(2)}</span>
-                </div>
-
                 <form onSubmit={handleSubmit} className="space-y-4">
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Monto a Abonar</label>
-                        <div className="relative">
-                            <FiDollarSign className="absolute left-3 top-3.5 text-slate-400"/>
-                            <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} required className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 focus:bg-white transition-colors outline-none font-bold text-slate-800" placeholder="0.00" step="0.01" />
-                        </div>
-                    </div>
-                    
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Método de Pago</label>
-                        <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 outline-none text-slate-700">
-                            <option>Efectivo</option><option>Transferencia Bancaria</option><option>Tarjeta de Crédito/Débito</option><option>Cheque</option>
-                        </select>
-                    </div>
-
-                    <div>
-                        <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Referencia (Opcional)</label>
-                        <input type="text" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="# Recibo o Transferencia" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 outline-none text-slate-700" />
-                    </div>
-
-                    <div className="flex gap-3 pt-4">
-                        <button type="button" onClick={onClose} className="flex-1 py-3 bg-white border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50">Cancelar</button>
-                        <button type="submit" disabled={loading} className="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-600/20 hover:bg-blue-700 disabled:opacity-50">
-                            {loading ? '...' : 'Confirmar'}
-                        </button>
-                    </div>
+                    <input type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="Monto (L)" required className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:border-blue-500 font-black text-xl" />
+                    <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none">
+                        <option>Efectivo</option><option>Transferencia</option><option>Tarjeta</option>
+                    </select>
+                    <input type="text" value={reference} onChange={e => setReference(e.target.value)} placeholder="Referencia / # Recibo" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none" />
+                    <button type="submit" disabled={loading} className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl shadow-xl shadow-blue-600/20 hover:bg-blue-700 transition-all uppercase">
+                        {loading ? 'Procesando...' : 'Confirmar Abono'}
+                    </button>
+                    <button type="button" onClick={onClose} className="w-full text-slate-400 font-bold text-sm">Cancelar</button>
                 </form>
             </motion.div>
         </div>
     );
 };
 
-// --- MODAL ANULAR (ESTILIZADO) ---
+// ==========================================
+// COMPONENTE: MODAL ANULAR
+// ==========================================
 const AnullInvoiceModal = ({ isOpen, onClose, invoice, onConfirm }) => {
     const [reason, setReason] = useState('');
     const [loading, setLoading] = useState(false);
-
-    useEffect(() => { if(isOpen) setReason(''); }, [isOpen]);
-
-    const handleSubmit = async () => {
-        if (!reason) { toast.warn("Razón requerida"); return; }
-        setLoading(true);
-        await onConfirm(reason);
-        setLoading(false);
-    };
-
     if (!isOpen) return null;
-
     return (
          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex justify-center items-center p-4">
-            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white p-6 rounded-2xl shadow-xl w-full max-w-md border-t-4 border-rose-500">
-                <h2 className="text-xl font-bold text-slate-800 mb-2">¿Anular Factura?</h2>
-                <p className="text-slate-500 text-sm mb-6">Esta acción devolverá los productos al inventario. No se puede deshacer.</p>
-                
-                <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Motivo de la anulación..." className="w-full p-3 bg-rose-50 border border-rose-100 rounded-xl focus:border-rose-500 outline-none text-slate-700 h-24 mb-6 resize-none" />
-                
-                <div className="flex gap-3">
-                    <button onClick={onClose} className="flex-1 py-3 bg-white border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50">Cancelar</button>
-                    <button onClick={handleSubmit} disabled={loading} className="flex-1 py-3 bg-rose-600 text-white font-bold rounded-xl shadow-lg shadow-rose-600/20 hover:bg-rose-700 disabled:opacity-50">
-                        {loading ? 'Anulando...' : 'Confirmar'}
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md">
+                <h2 className="text-xl font-black text-rose-600 mb-2 uppercase tracking-tight">¿Anular Factura?</h2>
+                <p className="text-slate-500 text-sm mb-6 font-medium">Esta acción revertirá el stock de los productos. Es irreversible.</p>
+                <textarea value={reason} onChange={e => setReason(e.target.value)} placeholder="Motivo de la anulación..." className="w-full p-4 bg-rose-50 border border-rose-100 rounded-2xl outline-none focus:border-rose-500 h-32 mb-6 resize-none font-medium text-slate-700" />
+                <div className="flex gap-4">
+                    <button onClick={onClose} className="flex-1 py-4 bg-slate-100 text-slate-500 font-black rounded-2xl hover:bg-slate-200 uppercase transition-all">No, atrás</button>
+                    <button onClick={async () => { setLoading(true); await onConfirm(reason); setLoading(false); }} disabled={loading} className="flex-1 py-4 bg-rose-600 text-white font-black rounded-2xl shadow-xl shadow-rose-600/20 hover:bg-rose-700 transition-all uppercase">
+                        {loading ? '...' : 'Sí, anular'}
                     </button>
                 </div>
             </motion.div>
@@ -272,122 +259,93 @@ const AnullInvoiceModal = ({ isOpen, onClose, invoice, onConfirm }) => {
     );
 };
 
-
-// --- PÁGINA PRINCIPAL DE FACTURAS ---
+// ==========================================
+// PÁGINA PRINCIPAL: INVOICES
+// ==========================================
 const Invoices = () => {
     const [invoices, setInvoices] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
-    
-    const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
-    const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
-    const [isAnullModalOpen, setIsAnullModalOpen] = useState(false);
     const [selectedInvoice, setSelectedInvoice] = useState(null);
+    const [modals, setModals] = useState({ payment: false, detail: false, anull: false });
 
     useEffect(() => {
-        const unsubscribe = getInvoices((fetchedInvoices) => { setInvoices(fetchedInvoices); setLoading(false); });
+        const unsubscribe = getInvoices((data) => { setInvoices(data); setLoading(false); });
         return () => unsubscribe();
     }, []);
 
-    const filteredInvoices = invoices.filter(invoice =>
-        (invoice.invoiceNumber?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-        (invoice.clientName?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-        (invoice.status?.toLowerCase() || '').includes(searchTerm.toLowerCase())
+    const filtered = invoices.filter(i =>
+        i.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        i.clientName.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
-    const openPaymentModal = (inv) => { setSelectedInvoice(inv); setIsPaymentModalOpen(true); };
-    const openDetailModal = (inv) => { setSelectedInvoice(inv); setIsDetailModalOpen(true); };
-    const openAnullModal = (inv) => { setSelectedInvoice(inv); setIsAnullModalOpen(true); };
-    const closeModal = () => { setIsPaymentModalOpen(false); setIsDetailModalOpen(false); setIsAnullModalOpen(false); setSelectedInvoice(null); };
-
-    const handleAnullConfirm = async (reason) => {
-        if (!selectedInvoice) return;
-        try {
-            await anullInvoice(selectedInvoice, reason);
-            toast.success(`Factura anulada.`);
-            closeModal();
-        } catch (error) { toast.error(`Error: ${error.message}`); }
-    };
+    const openModal = (type, inv) => { setSelectedInvoice(inv); setModals({ ...modals, [type]: true }); };
+    const closeModals = () => { setModals({ payment: false, detail: false, anull: false }); setSelectedInvoice(null); };
 
     return (
         <AnimatedPage>
             <div className="min-h-screen bg-slate-50 p-6 md:p-8">
-                
-                {/* Cabecera */}
-                <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+                {/* Header Page */}
+                <div className="flex flex-col md:flex-row justify-between items-center mb-10 gap-6">
                     <div>
-                        <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Cuentas por Cobrar</h1>
-                        <p className="text-slate-500 font-medium">Historial y gestión de cobros</p>
+                        <h1 className="text-4xl font-black text-slate-900 tracking-tighter">CUENTAS POR COBRAR</h1>
+                        <p className="text-slate-500 font-bold uppercase text-[10px] tracking-[0.2em] mt-1">Control maestro de facturación</p>
                     </div>
-                    <Link to="/facturas/crear" className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-xl shadow-lg shadow-blue-600/20 flex items-center gap-2 transition-transform active:scale-95 whitespace-nowrap">
-                        <FiPlus /> Nueva Factura
+                    <Link to="/facturas/crear" className="bg-blue-600 hover:bg-blue-700 text-white font-black py-4 px-8 rounded-2xl shadow-xl shadow-blue-600/20 flex items-center gap-3 transition-transform active:scale-95 whitespace-nowrap">
+                        <FiPlus size={20} /> NUEVA FACTURA
                     </Link>
                 </div>
 
-                {/* Tabla Container */}
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                    
-                    {/* Barra Busqueda */}
-                    <div className="p-4 border-b border-slate-100 bg-slate-50/50">
-                        <div className="relative max-w-md">
-                            <FiSearch className="absolute left-3 top-3 text-slate-400" />
-                            <input 
-                                type="text" 
-                                placeholder="Buscar por # Factura, Cliente o Estado..." 
-                                value={searchTerm} 
-                                onChange={e => setSearchTerm(e.target.value)} 
-                                className="w-full bg-white border border-slate-200 rounded-lg pl-10 pr-4 py-2 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
-                            />
+                {/* Main Table Container */}
+                <div className="bg-white rounded-[2rem] shadow-sm border border-slate-200 overflow-hidden">
+                    <div className="p-6 border-b border-slate-100 bg-slate-50/30">
+                        <div className="relative max-w-lg">
+                            <FiSearch className="absolute left-4 top-4 text-slate-400" />
+                            <input type="text" placeholder="Buscar por cliente o # factura..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-white border border-slate-200 rounded-2xl pl-12 pr-4 py-4 text-sm font-medium focus:border-blue-500 focus:ring-4 focus:ring-blue-500/5 transition-all outline-none" />
                         </div>
                     </div>
-                    
-                    {/* Tabla */}
+
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm text-left">
-                            <thead className="bg-slate-50 text-slate-500 font-semibold uppercase text-xs tracking-wider">
+                            <thead className="bg-slate-50 text-slate-400 font-black uppercase text-[10px] tracking-widest border-b">
                                 <tr>
-                                    <th className="px-6 py-4"># Factura</th><th className="px-6 py-4">Cliente</th><th className="px-6 py-4">Fecha</th>
-                                    <th className="px-6 py-4 text-right">Total</th><th className="px-6 py-4 text-right">Pagado</th><th className="px-6 py-4 text-right">Saldo</th>
-                                    <th className="px-6 py-4 text-center">Estado</th><th className="px-6 py-4 text-center">Acciones</th>
+                                    <th className="px-8 py-5">Factura</th><th className="px-8 py-5">Cliente / Fecha</th>
+                                    <th className="px-8 py-5 text-right">Total</th><th className="px-8 py-5 text-right">Saldo</th>
+                                    <th className="px-8 py-5 text-center">Estado</th><th className="px-8 py-5 text-center">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {loading ? ( <tr><td colSpan="8" className="p-10 text-center text-slate-400">Cargando facturas...</td></tr> ) : 
-                                filteredInvoices.length > 0 ? (
-                                    filteredInvoices.map(invoice => {
-                                        const balanceDue = invoice.balanceDue ?? invoice.total;
-                                        const amountPaid = invoice.amountPaid || 0;
-                                        const isFullyPaid = balanceDue <= 0.001;
-
-                                        return (
-                                            <tr key={invoice.id} className={`hover:bg-slate-50 transition-colors ${invoice.status === 'Anulada' ? 'opacity-60 bg-slate-50' : ''}`}>
-                                                <td className="px-6 py-4 font-mono font-medium text-slate-700">{invoice.invoiceNumber}</td>
-                                                <td className="px-6 py-4 font-medium text-slate-800">{invoice.clientName}</td>
-                                                <td className="px-6 py-4 text-slate-500">{invoice.issueDate}</td>
-                                                <td className="px-6 py-4 font-medium text-right text-slate-700">L {invoice.total.toFixed(2)}</td>
-                                                <td className="px-6 py-4 text-right text-emerald-600 font-medium">L {amountPaid.toFixed(2)}</td>
-                                                <td className={`px-6 py-4 font-bold text-right ${isFullyPaid ? 'text-slate-300' : 'text-rose-500'}`}>{balanceDue.toFixed(2)}</td>
-                                                <td className="px-6 py-4 text-center">
-                                                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${statusStyles[invoice.status] || statusStyles['Pendiente']}`}>
-                                                        {invoice.status}
-                                                    </span>
-                                                </td>
-                                                <td className="px-6 py-4 text-center">
-                                                    <div className="flex items-center justify-center gap-2">
-                                                        <button onClick={() => openDetailModal(invoice)} title="Ver Detalles" className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"><FiEye size={18}/></button>
-                                                        <button onClick={() => openPaymentModal(invoice)} title="Abonar" disabled={isFullyPaid || invoice.status === 'Anulada'} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-30 disabled:hover:bg-transparent transition-colors">
-                                                            <FiDollarSign size={18}/>
-                                                        </button>
-                                                        <button onClick={() => openAnullModal(invoice)} title="Anular" disabled={invoice.status === 'Anulada'} className="p-2 text-rose-500 hover:bg-rose-50 rounded-lg disabled:opacity-30 disabled:hover:bg-transparent transition-colors">
-                                                            <FiXOctagon size={18}/>
-                                                        </button>
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        )
-                                    })
-                                ) : (
-                                    <tr><td colSpan="8" className="p-10 text-center flex flex-col items-center justify-center text-slate-400"><FiFileText size={40} className="mb-2 opacity-30"/>No se encontraron facturas.</td></tr>
+                                {loading ? (
+                                    <tr><td colSpan="6" className="p-20 text-center text-slate-300 font-bold uppercase tracking-widest">Cargando base de datos...</td></tr>
+                                ) : filtered.length > 0 ? filtered.map(inv => (
+                                    <tr key={inv.id} className={`hover:bg-slate-50/80 transition-colors ${inv.status === 'Anulada' ? 'bg-slate-50/50' : ''}`}>
+                                        <td className="px-8 py-6">
+                                            <div className="font-black text-slate-900 font-mono text-lg">{inv.invoiceNumber}</div>
+                                            <div className="text-[10px] text-slate-400 font-black uppercase tracking-tighter">{inv.saleType}</div>
+                                        </td>
+                                        <td className="px-8 py-6">
+                                            <div className="font-bold text-slate-800">{inv.clientName}</div>
+                                            <div className="text-xs text-slate-400 font-medium">{inv.issueDate}</div>
+                                        </td>
+                                        <td className="px-8 py-6 text-right font-black text-slate-900">L {inv.total.toFixed(2)}</td>
+                                        <td className={`px-8 py-6 text-right font-black font-mono text-lg ${inv.balanceDue > 0 ? 'text-rose-500' : 'text-slate-300'}`}>
+                                            {inv.balanceDue.toFixed(2)}
+                                        </td>
+                                        <td className="px-8 py-6 text-center">
+                                            <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${STATUS_STYLES[inv.status] || STATUS_STYLES['Pendiente']}`}>
+                                                {inv.status}
+                                            </span>
+                                        </td>
+                                        <td className="px-8 py-6 text-center">
+                                            <div className="flex items-center justify-center gap-2">
+                                                <button onClick={() => openModal('detail', inv)} className="p-3 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-2xl transition-all"><FiEye size={20}/></button>
+                                                <button onClick={() => openModal('payment', inv)} disabled={inv.balanceDue <= 0.01 || inv.status === 'Anulada'} className="p-3 text-emerald-500 hover:bg-emerald-50 rounded-2xl disabled:opacity-20 transition-all"><FiDollarSign size={20}/></button>
+                                                <button onClick={() => openModal('anull', inv)} disabled={inv.status === 'Anulada'} className="p-3 text-rose-400 hover:bg-rose-50 rounded-2xl disabled:opacity-20 transition-all"><FiXOctagon size={20}/></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                )) : (
+                                    <tr><td colSpan="6" className="p-20 text-center"><FiFileText size={48} className="mx-auto text-slate-200 mb-4"/><p className="text-slate-400 font-bold uppercase tracking-widest text-xs">No se encontraron facturas</p></td></tr>
                                 )}
                             </tbody>
                         </table>
@@ -395,13 +353,12 @@ const Invoices = () => {
                 </div>
             </div>
             
-            {/* Renderizado de Modales */}
             <AnimatePresence>
                 {selectedInvoice && (
                     <>
-                        <AddPaymentModal isOpen={isPaymentModalOpen} onClose={closeModal} invoice={selectedInvoice} />
-                        <InvoiceDetailModal isOpen={isDetailModalOpen} onClose={closeModal} invoice={selectedInvoice} />
-                        <AnullInvoiceModal isOpen={isAnullModalOpen} onClose={closeModal} invoice={selectedInvoice} onConfirm={handleAnullConfirm} />
+                        <AddPaymentModal isOpen={modals.payment} onClose={closeModals} invoice={selectedInvoice} />
+                        <InvoiceDetailModal isOpen={modals.detail} onClose={closeModals} invoice={selectedInvoice} />
+                        <AnullInvoiceModal isOpen={modals.anull} onClose={closeModals} invoice={selectedInvoice} onConfirm={async (reason) => { await anullInvoice(selectedInvoice, reason); toast.success("Factura anulada."); closeModals(); }} />
                     </>
                 )}
             </AnimatePresence>

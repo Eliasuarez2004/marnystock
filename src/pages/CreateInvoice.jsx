@@ -1,22 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-toastify';
+import Select from 'react-select'; 
 import { getClients } from '../firebase/clientService';
 import { getProductTypesStream } from '../firebase/productService';
 import { getInventoryLotsStream } from '../firebase/inventoryService';
 import { addInvoiceAndProcessStock, getNextInvoiceNumber } from '../firebase/invoiceService';
 import AnimatedPage from '../components/AnimatedPage';
-import { FiTrash2, FiShoppingCart, FiUser, FiPackage, FiCheckCircle, FiPercent, FiGift } from 'react-icons/fi';
+import { FiTrash2, FiShoppingCart, FiUser, FiPackage, FiCheckCircle, FiTag, FiBriefcase, FiPercent, FiDollarSign } from 'react-icons/fi';
 import { motion, AnimatePresence } from 'framer-motion';
-
-// --- REGLAS DE BONIFICACIÓN ---
-const BONUS_RULES = [
-    { value: 'NINGUNA', label: 'Ninguna (Venta Normal)', multiplier: 0, showBonusFields: false },
-    { value: 'FARMACIA_CONTADO', label: 'Farmacia (Contado) - 12+1', multiplier: 12, showBonusFields: true },
-    { value: 'FARMACIA_CREDITO', label: 'Farmacia (Crédito) - 12+1', multiplier: 12, showBonusFields: true },
-    { value: 'NATURISTA_CONTADO', label: 'Naturista (Contado) - 12+1', multiplier: 12, showBonusFields: true },
-    { value: 'NATURISTA_CREDITO', label: 'Naturista (Crédito) - 12+1', multiplier: 12, showBonusFields: true },
-];
 
 const CreateInvoice = () => {
     const navigate = useNavigate();
@@ -24,21 +16,22 @@ const CreateInvoice = () => {
     const [productTypes, setProductTypes] = useState([]);
     const [inventoryLots, setInventoryLots] = useState([]);
     
-    // Estados del Formulario
+    // Metadatos
     const [selectedClientId, setSelectedClientId] = useState('');
+    const [businessType, setBusinessType] = useState('Farmacia');
+    const [saleType, setSaleType] = useState('Contado');
     const [saleLocation, setSaleLocation] = useState('');
-    const [bonusRule, setBonusRule] = useState(BONUS_RULES[0].value); // NUEVO ESTADO
-    const [productToAdd, setProductToAdd] = useState('');
+    
+    // Estados de Producto
+    const [selectedProductOption, setSelectedProductOption] = useState(null);
     const [quantity, setQuantity] = useState('');
     const [bonusQuantity, setBonusQuantity] = useState('');
-    const [bonusDiscount, setBonusDiscount] = useState(100); 
     
-    // Estados de la Factura
+    // Estados Finales
     const [invoiceItems, setInvoiceItems] = useState([]);
+    const [discountPercent, setDiscountPercent] = useState(''); // AHORA ES PORCENTAJE
     const [invoiceNumber, setInvoiceNumber] = useState('');
     const [loading, setLoading] = useState(false);
-
-    const currentRule = useMemo(() => BONUS_RULES.find(r => r.value === bonusRule), [bonusRule]);
 
     useEffect(() => {
         const u1 = getClients(setClients);
@@ -48,156 +41,113 @@ const CreateInvoice = () => {
         return () => { u1(); u2(); u3(); };
     }, []);
 
-    const getStock = (pid, loc) => {
-        if (!pid || !loc) return 0;
-        const field = loc === 'SPS' ? 'stockSPS' : 'stockTGU';
-        return inventoryLots.filter(l => l.productId === pid).reduce((acc, l) => acc + (l[field] || 0), 0);
-    };
+    const productOptions = useMemo(() => {
+        return productTypes.map(p => {
+            const stockSPS = inventoryLots.filter(l => l.productId === p.id).reduce((acc, l) => acc + (l.stockSPS || 0), 0);
+            const stockTGU = inventoryLots.filter(l => l.productId === p.id).reduce((acc, l) => acc + (l.stockTGU || 0), 0);
+            const stockTotal = saleLocation === 'SPS' ? stockSPS : stockTGU;
+            return {
+                value: p.id, label: `${p.name} (Stock: ${stockTotal})`,
+                price: p.price, name: p.name, stock: stockTotal
+            };
+        });
+    }, [productTypes, inventoryLots, saleLocation]);
 
     const handleAddItem = () => {
         if (!saleLocation) return toast.error("Selecciona la sede primero.");
-        if (!productToAdd) return toast.warn("Selecciona un producto.");
-        
+        if (!selectedProductOption) return toast.warn("Selecciona un producto.");
         const q = Number(quantity) || 0; 
-        let b = Number(bonusQuantity) || 0;
-        const discRate = Number(bonusDiscount);
-
-        // --- LÓGICA DE BONIFICACIÓN 12+1 (Automática) ---
-        if (currentRule.multiplier > 0) {
-            // Si la cantidad de venta es un múltiplo de la regla, CALCULAMOS el bono (12+1)
-            const calculatedBonus = Math.floor(q / currentRule.multiplier);
-            
-            // Si el campo de bono manual (b) está vacío o es menor al bono calculado,
-            // usamos el valor calculado. Si el vendedor pone un bono manual MAYOR, lo respetamos.
-            if (calculatedBonus > b) {
-                b = calculatedBonus;
-            }
-        }
-        // ----------------------------------------------------
-
-        if (q <= 0 && b <= 0) return toast.warn("Ingresa al menos una cantidad.");
-        if (b > 0 && (discRate < 0 || discRate > 100)) return toast.warn("El descuento debe ser entre 0% y 100%");
-
-        const prod = productTypes.find(p => p.id === productToAdd);
-        const stock = getStock(prod.id, saleLocation);
-        const currentInCart = invoiceItems.filter(i => i.productId === prod.id).reduce((s, i) => s + i.quantity, 0);
-
-        if (stock < (currentInCart + q + b)) {
-            return toast.error(`Stock insuficiente. Disponible en ${saleLocation}: ${stock}`);
-        }
+        const b = Number(bonusQuantity) || 0;
+        if (q <= 0 && b <= 0) return toast.warn("Ingresa cantidad.");
+        if (selectedProductOption.stock < (q + b)) return toast.error("Stock insuficiente.");
 
         const newLines = [];
-        
-        // 1. Item de Venta Normal
-        if (q > 0) {
-            newLines.push({ 
-                itemId: `${prod.id}-s-${Date.now()}`, productId: prod.id, name: prod.name, 
-                quantity: q, price: Number(prod.price), isBonus: false, discountRate: 0 
-            });
-        }
-
-        // 2. Item de Bonificación
-        if (b > 0) {
-            newLines.push({ 
-                itemId: `${prod.id}-b-${Date.now()}`, productId: prod.id, name: prod.name, 
-                quantity: b, price: Number(prod.price), isBonus: true, discountRate: discRate 
-            });
-        }
+        if (q > 0) newLines.push({ itemId: `${selectedProductOption.value}-v-${Date.now()}`, productId: selectedProductOption.value, name: selectedProductOption.name, quantity: q, price: Number(selectedProductOption.price), isBonus: false });
+        if (b > 0) newLines.push({ itemId: `${selectedProductOption.value}-b-${Date.now()}`, productId: selectedProductOption.value, name: selectedProductOption.name, quantity: b, price: 0, isBonus: true });
 
         setInvoiceItems([...invoiceItems, ...newLines]);
-        setProductToAdd(''); setQuantity(''); setBonusQuantity(''); setBonusDiscount(100); 
+        setSelectedProductOption(null); setQuantity(''); setBonusQuantity('');
     };
 
+    // --- LÓGICA DE CÁLCULO POR PORCENTAJE ---
     const totals = useMemo(() => {
-        const gross = invoiceItems.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-        
-        const discountAmount = invoiceItems.reduce((acc, item) => {
-            if (item.isBonus) {
-                return acc + ((item.price * item.quantity) * (item.discountRate / 100));
-            }
-            return acc;
-        }, 0);
+        const subtotalBruto = invoiceItems
+            .filter(i => !i.isBonus)
+            .reduce((acc, item) => acc + (item.price * item.quantity), 0);
 
-        const subtotal = gross - discountAmount;
-        const tax = subtotal * 0.15; // 15% ISV
-        const total = subtotal + tax;
+        // Calcular el valor del descuento basado en el %
+        const pct = Number(discountPercent) || 0;
+        const discountValue = subtotalBruto * (pct / 100);
         
-        return { totalBeforeDiscount: gross, discountAmount, subtotal, tax, total };
-    }, [invoiceItems]);
+        const subtotalNeto = subtotalBruto - discountValue;
+        const tax = subtotalNeto * 0.15;
+        const total = subtotalNeto + tax;
+        
+        return { subtotalBruto, discountValue, subtotalNeto, tax, total };
+    }, [invoiceItems, discountPercent]);
 
     const handleSubmit = async () => {
         if (!selectedClientId || !saleLocation || !invoiceItems.length) return toast.error("Faltan datos.");
         setLoading(true);
         const client = clients.find(c => c.id === selectedClientId);
-        
         const invoiceData = {
-            invoiceNumber, issueDate: new Date().toISOString().split('T')[0], status: 'Pendiente',
-            clientId: client.id, clientName: client.name, saleLocation, items: invoiceItems, ...totals
+            invoiceNumber, issueDate: new Date().toISOString().split('T')[0],
+            status: saleType === 'Contado' ? 'Pagada' : 'Pendiente',
+            clientId: client.id, clientName: client.name, businessType, saleType, saleLocation,
+            items: invoiceItems, 
+            discountPercent: Number(discountPercent || 0), // Guardamos el % aplicado
+            globalDiscount: totals.discountValue, // Guardamos el monto calculado
+            ...totals,
+            amountPaid: saleType === 'Contado' ? totals.total : 0,
+            balanceDue: saleType === 'Contado' ? 0 : totals.total
         };
-        
-        try { 
-            await addInvoiceAndProcessStock(invoiceData, saleLocation); 
-            toast.success("Factura Creada Exitosamente"); 
-            navigate('/facturas'); 
-        } 
+        try { await addInvoiceAndProcessStock(invoiceData, saleLocation); toast.success("Factura Generada"); navigate('/facturas'); } 
         catch (e) { toast.error(e.message); }
         setLoading(false);
     };
 
-    const groupedDisplay = useMemo(() => {
-        const g = {};
-        invoiceItems.forEach(i => {
-            if(!g[i.productId]) g[i.productId] = { ...i, qty: 0, bonus: 0, avgDiscount: 0 };
-            
-            if(i.isBonus) {
-                g[i.productId].bonus += i.quantity;
-                g[i.productId].avgDiscount = i.discountRate;
-            } else {
-                g[i.productId].qty += i.quantity;
-            }
-        });
-        return Object.values(g);
-    }, [invoiceItems]);
-
     return (
         <AnimatedPage>
-            <div className="min-h-screen bg-slate-50 p-6 md:p-8">
-                <div className="flex justify-between items-center mb-8">
-                    <h1 className="text-3xl font-bold text-slate-800 tracking-tight">
-                        Nueva Factura <span className="text-slate-400 font-light text-xl ml-2">#{invoiceNumber}</span>
-                    </h1>
-                    {invoiceItems.length > 0 && <button onClick={() => setInvoiceItems([])} className="text-rose-500 hover:text-rose-700 font-medium text-sm bg-rose-50 px-3 py-1 rounded-lg">Limpiar Todo</button>}
+            <div className="min-h-screen bg-slate-50 p-4 md:p-8">
+                <div className="flex justify-between items-center mb-6">
+                    <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Nueva Factura <span className="text-blue-500 font-mono text-xl ml-2">#{invoiceNumber}</span></h1>
+                    <button onClick={() => {setInvoiceItems([]); setDiscountPercent('')}} className="text-rose-500 font-bold text-sm bg-rose-50 px-4 py-2 rounded-xl">Limpiar Todo</button>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                    {/* COLUMNA IZQUIERDA: FORMULARIO */}
+                    {/* COLUMNA IZQUIERDA */}
                     <div className="lg:col-span-5 space-y-6">
-                        {/* Tarjeta Datos Generales */}
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                            <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2"><FiUser/> Datos Generales</h3>
+                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><FiUser/> Configuración</h3>
                             <div className="space-y-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Cliente</label>
-                                    <select value={selectedClientId} onChange={e => setSelectedClientId(e.target.value)} disabled={invoiceItems.length > 0} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 outline-none transition-all">
+                                    <label className="block text-sm font-semibold text-slate-700 mb-1">Cliente</label>
+                                    <select value={selectedClientId} onChange={e => setSelectedClientId(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none">
                                         <option value="">Seleccionar Cliente...</option>
                                         {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                     </select>
                                 </div>
-                                
-                                {/* SELECTOR DE REGLA DE BONIFICACIÓN (NUEVO) */}
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-2"><FiGift/> Regla de Bonificación</label>
-                                    <select value={bonusRule} onChange={e => setBonusRule(e.target.value)} disabled={invoiceItems.length > 0} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 outline-none transition-all font-semibold text-slate-700">
-                                        {BONUS_RULES.map(rule => <option key={rule.value} value={rule.value}>{rule.label}</option>)}
-                                    </select>
-                                    {currentRule.multiplier > 0 && <p className="text-xs text-slate-500 mt-1 pl-1">Aplica regla de {currentRule.multiplier}+1 automáticamente en la cantidad de bonificación.</p>}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-semibold text-slate-700 mb-1 flex items-center gap-1"><FiBriefcase size={14}/> Negocio</label>
+                                        <select value={businessType} onChange={e => setBusinessType(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none">
+                                            <option value="Farmacia">Farmacia</option>
+                                            <option value="Naturista">Naturista</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-semibold text-slate-700 mb-1 flex items-center gap-1"><FiTag size={14}/> Venta</label>
+                                        <select value={saleType} onChange={e => setSaleType(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-blue-600">
+                                            <option value="Contado">Contado</option>
+                                            <option value="Crédito">Crédito</option>
+                                        </select>
+                                    </div>
                                 </div>
-                                
                                 <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Sede de Venta</label>
+                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Sede de Despacho</label>
                                     <div className="grid grid-cols-2 gap-3">
                                         {['SPS', 'TGU'].map(loc => (
-                                            <button key={loc} onClick={() => !invoiceItems.length && setSaleLocation(loc)} className={`p-3 rounded-xl border font-medium transition-all ${saleLocation === loc ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+                                            <button key={loc} onClick={() => setSaleLocation(loc)} className={`py-3 rounded-xl border font-bold transition-all ${saleLocation === loc ? 'bg-slate-800 text-white border-slate-800 shadow-lg' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}>
                                                 {loc === 'SPS' ? 'San Pedro Sula' : 'Tegucigalpa'}
                                             </button>
                                         ))}
@@ -206,117 +156,95 @@ const CreateInvoice = () => {
                             </div>
                         </div>
 
-                        {/* Tarjeta Agregar Productos */}
-                        <div className={`bg-white p-6 rounded-2xl shadow-sm border border-slate-100 transition-opacity ${!saleLocation ? 'opacity-50 pointer-events-none' : ''}`}>
-                            <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2"><FiPackage/> Agregar Productos</h3>
-                            
-                            <select value={productToAdd} onChange={e => setProductToAdd(e.target.value)} className="w-full p-3 mb-5 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 outline-none">
-                                <option value="">Buscar producto...</option>
-                                {productTypes.map(p => (
-                                    <option key={p.id} value={p.id}>{p.name} — Stock: {getStock(p.id, saleLocation)}</option>
-                                ))}
-                            </select>
-
-                            <div className="grid grid-cols-12 gap-4 mb-4">
-                                <div className="col-span-4">
-                                    <label className="text-xs font-bold text-slate-500 block mb-1">CANTIDAD</label>
-                                    <input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 outline-none font-bold text-slate-800" placeholder="0"/>
-                                </div>
-                                
-                                {/* Sección de Bonificación con Campos Condicionales */}
-                                <div className={`col-span-4 transition-opacity ${currentRule.showBonusFields ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                                    <label className="text-xs font-bold text-emerald-600 block mb-1">BONIFICACIÓN</label>
-                                    <input type="number" value={bonusQuantity} onChange={e => setBonusQuantity(e.target.value)} className="w-full p-3 bg-emerald-50 border border-emerald-200 rounded-xl focus:border-emerald-500 outline-none font-bold text-emerald-800" placeholder="0"/>
-                                </div>
-                                <div className={`col-span-4 relative transition-opacity ${currentRule.showBonusFields ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                                    <label className="text-xs font-bold text-emerald-600 block mb-1">% DESC.</label>
-                                    <div className="relative">
-                                        <input type="number" value={bonusDiscount} onChange={e => setBonusDiscount(e.target.value)} className="w-full p-3 pl-3 pr-8 bg-emerald-50 border border-emerald-200 rounded-xl focus:border-emerald-500 outline-none font-bold text-emerald-800" placeholder="100"/>
-                                        <FiPercent className="absolute right-3 top-3.5 text-emerald-400" size={14}/>
-                                    </div>
-                                </div>
+                        <div className={`bg-white p-6 rounded-2xl shadow-sm border border-slate-100 transition-all ${!saleLocation ? 'opacity-40 pointer-events-none' : ''}`}>
+                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><FiPackage/> Productos</h3>
+                            <Select
+                                options={productOptions} value={selectedProductOption} onChange={setSelectedProductOption}
+                                placeholder="Escribe el nombre del producto..." isSearchable noOptionsMessage={() => "No se encontró el producto"}
+                                styles={{ control: (b) => ({ ...b, borderRadius: '0.75rem', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }) }}
+                            />
+                            <div className="grid grid-cols-2 gap-4 mt-4 mb-4">
+                                <div><label className="text-xs font-bold text-slate-500 block mb-1 uppercase">Venta</label>
+                                <input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold" placeholder="0"/></div>
+                                <div><label className="text-xs font-bold text-emerald-600 block mb-1 uppercase">Bono</label>
+                                <input type="number" value={bonusQuantity} onChange={e => setBonusQuantity(e.target.value)} className="w-full p-3 bg-emerald-50 border border-emerald-100 rounded-xl outline-none font-bold text-emerald-700" placeholder="0"/></div>
                             </div>
-
-                            <button onClick={handleAddItem} className="w-full py-3 bg-slate-800 text-white font-bold rounded-xl shadow-lg hover:bg-slate-700 transition-transform active:scale-95">
-                                Agregar a la Orden
-                            </button>
+                            <button onClick={handleAddItem} className="w-full py-4 bg-blue-600 text-white font-bold rounded-xl shadow-lg hover:bg-blue-700 transition-all active:scale-95">Agregar Item</button>
                         </div>
                     </div>
 
-                    {/* COLUMNA DERECHA: RESUMEN (Sin cambios funcionales aquí, solo visuales) */}
+                    {/* COLUMNA DERECHA */}
                     <div className="lg:col-span-7 flex flex-col h-full">
-                        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 flex-grow flex flex-col overflow-hidden">
-                            <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-                                <h3 className="font-bold text-slate-700 flex items-center gap-2"><FiShoppingCart/> Resumen de Orden</h3>
-                                <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-2 py-1 rounded-md">{invoiceItems.length} Items</span>
+                        <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden flex flex-col flex-grow">
+                            <div className="p-5 bg-slate-50 border-b border-slate-200 flex justify-between items-center font-bold text-slate-700 text-xs">
+                                <span><FiShoppingCart className="inline mr-2"/> ARTÍCULOS</span>
+                                <span className="bg-blue-600 text-white px-3 py-1 rounded-full">{invoiceItems.length} Líneas</span>
                             </div>
                             
-                            <div className="flex-grow overflow-y-auto p-0 min-h-[300px]">
-                                {invoiceItems.length === 0 ? (
-                                    <div className="h-full flex flex-col items-center justify-center text-slate-300">
-                                        <FiShoppingCart size={48} className="mb-4 opacity-50"/>
-                                        <p>El carrito está vacío</p>
-                                    </div>
-                                ) : (
-                                    <table className="w-full text-sm text-left">
-                                        <thead className="bg-white text-slate-500 sticky top-0 shadow-sm z-10">
-                                            <tr><th className="p-4">Producto</th><th className="p-4 text-center">Cant.</th><th className="p-4 text-right">Subtotal</th><th className="p-4"></th></tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-50">
-                                            <AnimatePresence>
-                                                {groupedDisplay.map(item => {
-                                                    const regularTotal = item.qty * item.price;
-                                                    const bonusTotal = (item.price * item.bonus) * (1 - (item.avgDiscount / 100)); 
-                                                    const displayTotal = regularTotal + bonusTotal;
-
-                                                    return (
-                                                        <motion.tr key={item.productId} initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="hover:bg-slate-50">
-                                                            <td className="p-4">
-                                                                <div className="font-medium text-slate-800">{item.name}</div>
-                                                                {item.bonus > 0 && (
-                                                                    <div className="mt-1 flex items-center gap-2">
-                                                                        <span className="text-xs text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 flex items-center gap-1">
-                                                                            <FiCheckCircle size={10}/> {item.bonus} Bonif. ({item.avgDiscount}%)
-                                                                        </span>
-                                                                    </div>
-                                                                )}
-                                                            </td>
-                                                            <td className="p-4 text-center font-bold text-slate-700">
-                                                                {item.qty}
-                                                                {item.bonus > 0 && <span className="text-emerald-500 ml-1">+{item.bonus}</span>}
-                                                            </td>
-                                                            <td className="p-4 text-right font-medium text-slate-600">L {displayTotal.toFixed(2)}</td>
-                                                            <td className="p-4 text-center">
-                                                                <button onClick={() => setInvoiceItems(invoiceItems.filter(i => i.productId !== item.productId))} className="text-rose-400 hover:text-rose-600 p-2 hover:bg-rose-50 rounded-lg transition-colors"><FiTrash2/></button>
-                                                            </td>
-                                                        </motion.tr>
-                                                    );
-                                                })}
-                                            </AnimatePresence>
-                                        </tbody>
-                                    </table>
-                                )}
+                            <div className="flex-grow overflow-y-auto max-h-[350px]">
+                                <table className="w-full text-sm text-left">
+                                    <thead className="bg-white sticky top-0 text-slate-400 font-bold text-[10px] uppercase tracking-wider z-10 shadow-sm">
+                                        <tr><th className="p-4">Descripción</th><th className="p-4 text-center">Cant.</th><th className="p-4 text-right">Unitario</th><th className="p-4 text-right">Total</th><th className="p-4"></th></tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-50">
+                                        {Object.values(invoiceItems.reduce((acc, item) => {
+                                            if (!acc[item.productId]) acc[item.productId] = { ...item, q: 0, b: 0, p: 0 };
+                                            if (item.isBonus) acc[item.productId].b += item.quantity;
+                                            else { acc[item.productId].q += item.quantity; acc[item.productId].p = item.price; }
+                                            return acc;
+                                        }, {})).map(item => (
+                                            <tr key={item.productId} className="hover:bg-slate-50">
+                                                <td className="p-4"><div className="font-bold text-slate-800">{item.name}</div>
+                                                {item.b > 0 && <span className="text-[10px] text-emerald-600 font-black uppercase tracking-tighter">Incluye {item.b} bonificados</span>}</td>
+                                                <td className="p-4 text-center font-bold text-slate-700">{item.q} {item.b > 0 && <span className="text-emerald-500">+{item.b}</span>}</td>
+                                                <td className="p-4 text-right text-slate-500">L {item.p.toFixed(2)}</td>
+                                                <td className="p-4 text-right font-black text-slate-900">L {(item.q * item.p).toFixed(2)}</td>
+                                                <td className="p-4 text-center"><button onClick={() => setInvoiceItems(invoiceItems.filter(i => i.productId !== item.productId))} className="text-rose-400"><FiTrash2/></button></td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
                             </div>
 
-                            {/* TOTALES */}
-                            <div className="bg-slate-50 p-6 border-t border-slate-200 space-y-2">
-                                <div className="flex justify-between text-sm text-slate-500"><span>Subtotal Bruto:</span> <span>L {totals.totalBeforeDiscount.toFixed(2)}</span></div>
-                                {totals.discountAmount > 0 && (
-                                    <div className="flex justify-between text-sm text-emerald-600 font-medium">
-                                        <span>Descuento / Bonificación:</span> 
-                                        <span>- L {totals.discountAmount.toFixed(2)}</span>
-                                    </div>
-                                )}
-                                <div className="flex justify-between text-sm text-slate-500 pt-2 border-t border-slate-200"><span>Subtotal Neto:</span> <span>L {totals.subtotal.toFixed(2)}</span></div>
-                                <div className="flex justify-between text-sm text-slate-500"><span>ISV (15%):</span> <span>L {totals.tax.toFixed(2)}</span></div>
-                                
-                                <div className="flex justify-between items-center pt-4 mt-2 border-t border-slate-200">
-                                    <span className="text-lg font-bold text-slate-800">Total a Pagar</span>
-                                    <span className="text-2xl font-black text-blue-600">L {totals.total.toFixed(2)}</span>
+                            <div className="bg-slate-900 p-8 text-white space-y-4">
+                                <div className="flex justify-between items-center text-slate-400 text-sm">
+                                    <span>SUBTOTAL BRUTO:</span><span className="font-mono">L {totals.subtotalBruto.toFixed(2)}</span>
                                 </div>
                                 
-                                <button onClick={handleSubmit} disabled={loading || !invoiceItems.length} className="w-full mt-4 py-4 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-600/30 hover:bg-blue-700 transition-all disabled:opacity-50 disabled:shadow-none">
-                                    {loading ? 'Procesando...' : 'Confirmar Factura'}
+                                <div className="flex justify-between items-center border-y border-slate-800 py-4">
+                                    <div className="flex items-center gap-2 text-blue-400 text-sm font-black uppercase tracking-widest">
+                                        <FiTag/> DESCUENTO (%) :
+                                    </div>
+                                    <div className="relative w-32">
+                                        <input 
+                                            type="text" inputMode="decimal"
+                                            value={discountPercent} 
+                                            onChange={e => setDiscountPercent(e.target.value.replace(/[^0-9.]/g, ''))} 
+                                            className="w-full bg-slate-800 border-2 border-slate-700 rounded-2xl py-2 px-4 text-right font-mono text-xl text-blue-400 focus:border-blue-500 outline-none"
+                                            placeholder="0"
+                                        />
+                                        <FiPercent className="absolute left-3 top-3.5 text-slate-600" size={14}/>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-1">
+                                    <div className="flex justify-between text-xs text-rose-400 font-bold uppercase">
+                                        <span>Valor Descontado:</span><span>- L {totals.discountValue.toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex justify-between text-sm font-medium text-slate-300">
+                                        <span>NETO SIN IMPUESTO:</span><span className="font-mono font-bold">L {totals.subtotalNeto.toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex justify-between text-xs text-slate-400">
+                                        <span>ISV (15%):</span><span className="font-mono">L {totals.tax.toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex justify-between items-center pt-4 border-t border-slate-800 mt-2">
+                                        <span className="text-xl font-black tracking-tighter uppercase text-blue-400">Total Factura:</span>
+                                        <span className="text-4xl font-black text-white font-mono">L {totals.total.toFixed(2)}</span>
+                                    </div>
+                                </div>
+
+                                <button onClick={handleSubmit} disabled={loading || !invoiceItems.length} className="w-full py-5 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-2xl shadow-2xl transition-all active:scale-95 disabled:opacity-50 text-lg flex items-center justify-center gap-3">
+                                    {loading ? 'PROCESANDO...' : <><FiDollarSign/> GUARDAR VENTA</>}
                                 </button>
                             </div>
                         </div>
