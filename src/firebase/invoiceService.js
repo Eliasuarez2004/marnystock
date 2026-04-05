@@ -1,9 +1,9 @@
 import { db } from './config';
 import { 
     collection, addDoc, getDocs, doc, runTransaction, query, 
-    orderBy, limit, updateDoc, onSnapshot 
+    orderBy, limit, updateDoc, onSnapshot, where 
 } from 'firebase/firestore'; 
-import { processFEFODiscount } from './inventoryService';
+import { processFEFODiscount, createInventoryMovement } from './inventoryService';
 
 // --- GENERAR NÚMERO DE FACTURA ---
 export const getNextInvoiceNumber = async () => {
@@ -21,33 +21,34 @@ export const getNextInvoiceNumber = async () => {
     return `F-${String(nextNumber).padStart(4, '0')}`;
 };
 
-// --- CREAR FACTURA Y MOVER STOCK (LOGICA CON TRAZABILIDAD DE BONO) ---
+// --- CREAR FACTURA Y PROCESAR KARDEX (FEFO) ---
 export const addInvoiceAndProcessStock = async (invoiceData, location) => {
     try {
         await runTransaction(db, async (transaction) => {
-            // 1. Guardar la factura principal
+            // 1. Guardar la factura principal en Firestore
             const invoiceRef = doc(collection(db, "invoices")); 
             transaction.set(invoiceRef, {
                 ...invoiceData,
-                createdAt: new Date(),
+                createdAt: new Date(), // Timestamp para orden interno
             });
 
-            // 2. Procesar cada item para descontar inventario
+            // 2. Procesar cada item para descontar inventario mediante FEFO
             for (const item of invoiceData.items) {
                 
-                // Si el item es bono, el tipo de movimiento en inventario debe ser diferente
+                // Determinar tipo de salida para el historial
                 const movementType = item.isBonus ? 'SALIDA_BONIFICACION' : 'SALIDA_VENTA';
                 
-                let reasonText = `Factura #${invoiceData.invoiceNumber} (${invoiceData.saleType})`;
+                // Construir razón para el Kardex
+                let reasonText = `Factura #${invoiceData.invoiceNumber} del ${invoiceData.issueDate}`;
                 if (item.isBonus) {
                     reasonText += ` - Entrega por Bonificación`;
                 } else {
                     reasonText += ` - Venta a cliente`;
                 }
                 
-                // Llamamos a la lógica FEFO que creamos anteriormente en inventoryService
+                // Llamamos a la lógica FEFO del servicio de inventario
                 await processFEFODiscount({
-                    type: movementType, // <--- Aquí va 'SALIDA_BONIFICACION' o 'SALIDA_VENTA'
+                    type: movementType, 
                     productId: item.productId,
                     quantity: item.quantity,
                     fromLocation: location,
@@ -63,7 +64,7 @@ export const addInvoiceAndProcessStock = async (invoiceData, location) => {
     }
 };
 
-// --- OBTENER FACTURAS ---
+// --- OBTENER FACTURAS EN TIEMPO REAL ---
 export const getInvoices = (callback) => {
     const q = query(collection(db, "invoices"), orderBy("createdAt", "desc"));
     return onSnapshot(q, (snapshot) => {
@@ -72,7 +73,7 @@ export const getInvoices = (callback) => {
     });
 };
 
-// --- GESTIÓN DE PAGOS ---
+// --- OBTENER PAGOS DE UNA FACTURA ---
 export const getInvoicePayments = (invoiceId, callback) => {
     const q = query(collection(db, `invoices/${invoiceId}/payments`), orderBy("paymentDate", "desc"));
     return onSnapshot(q, (snapshot) => {
@@ -81,18 +82,22 @@ export const getInvoicePayments = (invoiceId, callback) => {
     });
 };
 
+// --- REGISTRAR UN PAGO / ABONO ---
 export const addPaymentToInvoice = async (invoice, paymentData) => {
     const paymentRef = collection(db, `invoices/${invoice.id}/payments`);
     
+    // 1. Agregar el documento del pago
     await addDoc(paymentRef, {
         ...paymentData,
         paymentDate: new Date().toISOString().split('T')[0], 
         createdAt: new Date()
     });
 
+    // 2. Calcular nuevos saldos
     const newAmountPaid = (invoice.amountPaid || 0) + Number(paymentData.amount);
     const newBalanceDue = Math.max(0, invoice.total - newAmountPaid);
     
+    // Determinar nuevo estado basado en saldo
     let newStatus = invoice.status;
     if (newBalanceDue <= 0.01) newStatus = 'Pagada';
     else if (newAmountPaid > 0) newStatus = 'Abonada';
@@ -105,10 +110,11 @@ export const addPaymentToInvoice = async (invoice, paymentData) => {
     });
 };
 
-// --- ANULAR FACTURA ---
+// --- ANULAR FACTURA Y REVERTIR STOCK ---
 export const anullInvoice = async (invoice, reason) => {
     try {
         await runTransaction(db, async (transaction) => {
+            // 1. Marcar la factura como anulada
             const invoiceRef = doc(db, "invoices", invoice.id);
             transaction.update(invoiceRef, { 
                 status: 'Anulada',
@@ -116,19 +122,49 @@ export const anullInvoice = async (invoice, reason) => {
                 anulledAt: new Date()
             });
 
-            // En devoluciones no separamos bono de venta en el tipo, 
-            // todo entra como DEVOLUCION para simplificar el stock.
+            // 2. Devolver stock al inventario
             for (const item of invoice.items) {
-                // Aquí usamos createInventoryMovement si tenemos el lotId guardado en el item de la factura,
-                // de lo contrario, tendríamos que buscar dónde devolverlo. 
-                // Por ahora, asumimos que createInventoryMovement maneja la lógica básica.
-                // NOTA: Si processFEFODiscount NO soporta entradas, hay que usar otra función.
-                // Asumiendo la lógica previa:
-                /* 
-                await createInventoryMovement({ ... }); 
-                */
+                // Al anular, no sabemos exactamente de qué lote salió originalmente (FEFO es dinámico)
+                // Por lo tanto, buscamos el LOTE MÁS RECIENTE (último en vencer) de ese producto 
+                // en esa sede para devolverle la existencia.
+                
+                const stockField = invoice.saleLocation === 'SPS' ? 'stockSPS' : 'stockTGU';
+                const q = query(
+                    collection(db, "inventory_lots"), 
+                    where("productId", "==", item.productId),
+                    orderBy("expiryDate", "desc"), // Devolvemos al lote con fecha más lejana
+                    limit(1)
+                );
+                
+                const lotSnapshot = await getDocs(q);
+                
+                if (!lotSnapshot.empty) {
+                    const targetLot = lotSnapshot.docs[0];
+                    const targetLotData = targetLot.data();
+                    
+                    // Actualizamos el stock del lote encontrado
+                    const lotRef = doc(db, "inventory_lots", targetLot.id);
+                    transaction.update(lotRef, {
+                        [stockField]: (targetLotData[stockField] || 0) + item.quantity
+                    });
+
+                    // Registramos la entrada por devolución en el Kardex
+                    const movementRef = doc(collection(db, "inventory_movements"));
+                    transaction.set(movementRef, {
+                        date: new Date().getTime(),
+                        type: 'ENTRADA_DEVOLUCION',
+                        lotId: targetLot.id,
+                        lotNumber: targetLotData.lotNumber,
+                        productId: item.productId,
+                        productName: targetLotData.productName,
+                        toLocation: invoice.saleLocation,
+                        quantity: item.quantity,
+                        reason: `Anulación Factura #${invoice.invoiceNumber}: ${reason}`
+                    });
+                }
             }
         });
+        return true;
     } catch (error) {
         console.error("Error anulando factura:", error);
         throw error;
