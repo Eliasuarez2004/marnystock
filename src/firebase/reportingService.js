@@ -1,122 +1,120 @@
 import { db } from './config';
-import { collection, getDocs } from 'firebase/firestore';
-import { startOfMonth, endOfMonth, startOfYear, endOfYear, subDays, startOfDay } from 'date-fns';
+import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
 
-// Función auxiliar que obtiene todos los datos necesarios de una sola vez
-const getAllData = async () => {
-    // Usamos Promise.all para ejecutar todas las lecturas de la base de datos en paralelo
-    const [invoicesSnapshot, clientsSnapshot] = await Promise.all([
-        getDocs(collection(db, 'invoices')),
-        getDocs(collection(db, 'clients')),
-    ]);
-
-    const invoices = invoicesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    const clients = clientsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-    return { invoices, clients };
-};
-
-// --- FUNCIÓN PRINCIPAL EXPORTADA ---
-export const getAdvancedReportData = async (timeFilter = 'thisMonth') => {
-    const { invoices, clients } = await getAllData();
-
-    // 1. Definir el rango de fechas según el filtro seleccionado
-    const now = new Date();
+export const getAdvancedReportData = async (filter) => {
     let startDate, endDate;
-    if (timeFilter === 'thisMonth') {
-        startDate = startOfMonth(now);
-        endDate = endOfMonth(now);
-    } else if (timeFilter === 'thisYear') {
-        startDate = startOfYear(now);
-        endDate = endOfYear(now);
-    } else { // 'last30days'
-        endDate = startOfDay(now);
-        startDate = subDays(endDate, 29);
+    const now = new Date();
+
+    // 1. LÓGICA DE RANGOS
+    if (filter === 'thisMonth') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+    } else if (filter === 'thisYear') {
+        startDate = `${now.getFullYear()}-01-01`;
+        endDate = `${now.getFullYear()}-12-31`;
+    } else if (filter === 'last30days') {
+        const d = new Date();
+        d.setDate(d.getDate() - 30);
+        startDate = d.toISOString().split('T')[0];
+        endDate = now.toISOString().split('T')[0];
+    } else if (typeof filter === 'object' && filter.type === 'custom') {
+        if (filter.month === 'all') {
+            startDate = `${filter.year}-01-01`;
+            endDate = `${filter.year}-12-31`;
+        } else {
+            startDate = `${filter.year}-${filter.month}-01`;
+            const lastDay = new Date(filter.year, parseInt(filter.month), 0).getDate();
+            endDate = `${filter.year}-${filter.month}-${lastDay}`;
+        }
     }
-    
-    // Filtramos las facturas que caen dentro del período de tiempo seleccionado
-    const periodInvoices = invoices.filter(inv => {
-        const invDate = new Date(inv.issueDate);
-        return invDate >= startDate && invDate <= endDate;
-    });
-    
-    // --- CÁLCULOS DE VENTAS ---
-    const salesByMonth = {};
-    const salesByYear = {};
-    const salesByLocation = { SPS: 0, TGU: 0 };
-    
-    // Solo consideramos facturas pagadas para los reportes de ventas
-    periodInvoices.filter(i => i.status === 'Pagada').forEach(inv => {
-        const date = new Date(inv.issueDate);
-        const year = date.getFullYear();
-        const monthKey = `${year}-${(date.getMonth() + 1).toString().padStart(2, '0')}`;
-        
-        salesByMonth[monthKey] = (salesByMonth[monthKey] || 0) + inv.total;
-        salesByYear[year] = (salesByYear[year] || 0) + inv.total;
-        
-        if (inv.saleLocation === 'SPS') {
-            salesByLocation.SPS += inv.total;
-        } else if (inv.saleLocation === 'TGU') {
-            salesByLocation.TGU += inv.total;
-        }
-    });
 
-    // --- CÁLCULOS DE PRODUCTOS ---
-    const productPerformance = {};
-    periodInvoices.forEach(inv => {
-        // Obtenemos la información del cliente para la ubicación
-        const client = clients.find(c => c.id === inv.clientId);
-        // Simplificamos la obtención de la ciudad
-        const city = client?.address ? client.address.split(',').pop().trim() : 'Desconocida';
-        
-        inv.items.forEach(item => {
-            if (!productPerformance[item.productId]) {
-                productPerformance[item.productId] = { 
-                    name: item.name, 
-                    totalQuantity: 0,
-                    byLocation: { SPS: 0, TGU: 0 },
-                    byCity: {}
-                };
-            }
-            productPerformance[item.productId].totalQuantity += item.quantity;
-            if (inv.saleLocation) {
-                productPerformance[item.productId].byLocation[inv.saleLocation] += item.quantity;
-            }
-            productPerformance[item.productId].byCity[city] = (productPerformance[item.productId].byCity[city] || 0) + item.quantity;
+    try {
+        // --- PASO CLAVE: OBTENER MAPA DE CLIENTES PARA CORREGIR UBICACIONES ---
+        const clientsSnap = await getDocs(collection(db, "clients"));
+        const clientDeptMap = {};
+        clientsSnap.forEach(doc => {
+            clientDeptMap[doc.id] = doc.data().departamento;
         });
-    });
-    const topProducts = Object.values(productPerformance).sort((a,b) => b.totalQuantity - a.totalQuantity);
 
-    // --- CÁLCULOS DE CLIENTES ---
-    const clientPerformance = {};
-    clients.forEach(c => clientPerformance[c.id] = { id: c.id, name: c.name, totalAmount: 0, productCount: 0 });
-    
-    periodInvoices.filter(i => i.status === 'Pagada').forEach(inv => {
-        if(clientPerformance[inv.clientId]){
-            clientPerformance[inv.clientId].totalAmount += inv.total;
-            clientPerformance[inv.clientId].productCount += inv.items.reduce((sum, item) => sum + item.quantity, 0);
-        }
-    });
-    const topClientsByAmount = Object.values(clientPerformance).filter(c => c.totalAmount > 0).sort((a,b) => b.totalAmount - a.totalAmount);
-    
-    // Clientes con mayor saldo deudor (esto se calcula sobre TODAS las facturas, no solo las del período)
-    const topDebtors = {};
-    invoices.filter(inv => (inv.balanceDue ?? 0) > 0.01).forEach(inv => {
-        if (!topDebtors[inv.clientId]) {
-            topDebtors[inv.clientId] = { name: inv.clientName, totalDebt: 0 };
-        }
-        topDebtors[inv.clientId].totalDebt += inv.balanceDue;
-    });
-    const topDebtorsList = Object.values(topDebtors).sort((a,b) => b.totalDebt - a.totalDebt);
-    
-    // Devolvemos todo en una estructura organizada para la página de reportes
-    return {
-        salesReport: { 
-            salesByMonth: Object.fromEntries(Object.entries(salesByMonth).sort()), // Ordenar por mes
-            salesByYear, 
-            salesByLocation 
-        },
-        productReport: { topProducts },
-        clientReport: { topClientsByAmount, topDebtorsList }
-    };
+        const invoicesRef = collection(db, "invoices");
+        const q = query(
+            invoicesRef, 
+            where("issueDate", ">=", startDate), 
+            where("issueDate", "<=", endDate), 
+            orderBy("issueDate", "asc")
+        );
+
+        const querySnapshot = await getDocs(q);
+        const invoices = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        const salesReport = { totalGross: 0, totalDiscount: 0, salesByMonth: {}, salesByLocation: { SPS: 0, TGU: 0 }, avgTicket: 0 };
+        const productMap = {};
+        const clientMap = {};
+        const departmentMap = {};
+
+        invoices.forEach(inv => {
+            if (inv.status === 'Anulada') return;
+
+            // Datos base
+            salesReport.totalGross += (inv.subtotalBruto || 0);
+            salesReport.totalDiscount += (inv.globalDiscount || 0);
+            salesReport.salesByLocation[inv.saleLocation] += (inv.total || 0);
+            salesReport.salesByMonth[inv.issueDate] = (salesReport.salesByMonth[inv.issueDate] || 0) + inv.total;
+
+            // --- LÓGICA DE DEPARTAMENTO CORREGIDA ---
+            // Prioridad 1: Departamento en la factura.
+            // Prioridad 2: Departamento actual del cliente.
+            // Prioridad 3: Francisco Morazán (Tegucigalpa) como fallback si no hay nada.
+            const dept = inv.clientDepartment || clientDeptMap[inv.clientId] || 'Francisco Morazán';
+            
+            if (!departmentMap[dept]) {
+                departmentMap[dept] = { name: dept, sales: 0, customerCount: new Set(), invoiceCount: 0 };
+            }
+            departmentMap[dept].sales += inv.total;
+            departmentMap[dept].invoiceCount += 1;
+            departmentMap[dept].customerCount.add(inv.clientId);
+
+            // Productos
+            inv.items.forEach(item => {
+                if (!productMap[item.productId]) {
+                    productMap[item.productId] = { name: item.name, totalQty: 0, totalRevenue: 0, byDept: {} };
+                }
+                productMap[item.productId].totalQty += item.quantity;
+                productMap[item.productId].totalRevenue += (item.price * item.quantity);
+                productMap[item.productId].byDept[dept] = (productMap[item.productId].byDept[dept] || 0) + item.quantity;
+            });
+
+            // Clientes
+            if (!clientMap[inv.clientId]) {
+                clientMap[inv.clientId] = { name: inv.clientName, dept: dept, totalSpend: 0, debt: 0 };
+            }
+            clientMap[inv.clientId].totalSpend += inv.total;
+            clientMap[inv.clientId].debt += (inv.balanceDue || 0);
+        });
+
+        const departmentStats = Object.values(departmentMap).map(d => ({
+            name: d.name,
+            sales: d.sales,
+            invoiceCount: d.invoiceCount,
+            customerCount: d.customerCount.size
+        })).sort((a, b) => b.sales - a.sales);
+
+        salesReport.avgTicket = invoices.length > 0 ? (salesReport.totalGross / invoices.length) : 0;
+
+        return {
+            salesReport,
+            productReport: {
+                topProducts: Object.values(productMap).sort((a, b) => b.totalQty - a.totalQty).slice(0, 15),
+                totalUnits: Object.values(productMap).reduce((acc, p) => acc + p.totalQty, 0)
+            },
+            clientReport: {
+                topBuyers: Object.values(clientMap).sort((a, b) => b.totalSpend - a.totalSpend).slice(0, 10),
+                topDebtors: Object.values(clientMap).filter(c => c.debt > 0).sort((a, b) => b.debt - a.debt).slice(0, 10)
+            },
+            departmentStats
+        };
+    } catch (error) { 
+        console.error("Error BI:", error); 
+        throw error; 
+    }
 };

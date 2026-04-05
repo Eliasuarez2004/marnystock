@@ -7,7 +7,7 @@ import { getProductTypesStream } from '../firebase/productService';
 import { getInventoryLotsStream } from '../firebase/inventoryService';
 import { addInvoiceAndProcessStock, getNextInvoiceNumber } from '../firebase/invoiceService';
 import AnimatedPage from '../components/AnimatedPage';
-import { FiTrash2, FiShoppingCart, FiUser, FiPackage, FiCheckCircle, FiTag, FiBriefcase, FiPercent, FiDollarSign, FiCalendar } from 'react-icons/fi';
+import { FiTrash2, FiShoppingCart, FiUser, FiPackage, FiCheckCircle, FiTag, FiBriefcase, FiPercent, FiDollarSign, FiCalendar, FiHash, FiMapPin } from 'react-icons/fi';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const CreateInvoice = () => {
@@ -16,35 +16,36 @@ const CreateInvoice = () => {
     const [productTypes, setProductTypes] = useState([]);
     const [inventoryLots, setInventoryLots] = useState([]);
     
-    // Metadatos y Fechas
+    // --- METADATOS DE IDENTIDAD ---
+    const [invoiceNumber, setInvoiceNumber] = useState(''); 
+    const [issueDate, setIssueDate] = useState(new Date().toISOString().split('T')[0]);
     const [selectedClientId, setSelectedClientId] = useState('');
     const [businessType, setBusinessType] = useState('Farmacia');
     const [saleType, setSaleType] = useState('Contado');
     const [saleLocation, setSaleLocation] = useState('');
     
-    // NUEVO: Fecha de Emisión (Manual para historial)
-    // Inicializamos con la fecha de hoy por defecto en formato YYYY-MM-DD
-    const [issueDate, setIssueDate] = useState(new Date().toISOString().split('T')[0]);
-    
-    // Estados de Producto
+    // --- ESTADOS DE PRODUCTO ---
     const [selectedProductOption, setSelectedProductOption] = useState(null);
     const [quantity, setQuantity] = useState('');
     const [bonusQuantity, setBonusQuantity] = useState('');
     
-    // Estados Finales
+    // --- ESTADOS DE FACTURA ---
     const [invoiceItems, setInvoiceItems] = useState([]);
-    const [discountPercent, setDiscountPercent] = useState('');
-    const [invoiceNumber, setInvoiceNumber] = useState('');
+    const [discountPercent, setDiscountPercent] = useState(''); 
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
         const u1 = getClients(setClients);
         const u2 = getProductTypesStream(setProductTypes);
         const u3 = getInventoryLotsStream(setInventoryLots);
-        getNextInvoiceNumber().then(setInvoiceNumber);
+        
+        // Sugerir el siguiente número correlativo al cargar
+        getNextInvoiceNumber().then(res => setInvoiceNumber(res));
+
         return () => { u1(); u2(); u3(); };
     }, []);
 
+    // Opciones del buscador con stock dinámico por sede
     const productOptions = useMemo(() => {
         return productTypes.map(p => {
             const stockSPS = inventoryLots.filter(l => l.productId === p.id).reduce((acc, l) => acc + (l.stockSPS || 0), 0);
@@ -62,7 +63,7 @@ const CreateInvoice = () => {
         if (!selectedProductOption) return toast.warn("Selecciona un producto.");
         const q = Number(quantity) || 0; 
         const b = Number(bonusQuantity) || 0;
-        if (q <= 0 && b <= 0) return toast.warn("Ingresa cantidad.");
+        if (q <= 0 && b <= 0) return toast.warn("Ingresa cantidad o bono.");
         if (selectedProductOption.stock < (q + b)) return toast.error("Stock insuficiente.");
 
         const newLines = [];
@@ -73,6 +74,7 @@ const CreateInvoice = () => {
         setSelectedProductOption(null); setQuantity(''); setBonusQuantity('');
     };
 
+    // --- LÓGICA DE TOTALES (DETALLADA) ---
     const totals = useMemo(() => {
         const subtotalBruto = invoiceItems.filter(i => !i.isBonus).reduce((acc, item) => acc + (item.price * item.quantity), 0);
         const pct = Number(discountPercent) || 0;
@@ -84,19 +86,20 @@ const CreateInvoice = () => {
     }, [invoiceItems, discountPercent]);
 
     const handleSubmit = async () => {
-        if (!selectedClientId || !saleLocation || !invoiceItems.length || !issueDate) {
-            return toast.error("Por favor completa todos los datos, incluyendo la fecha.");
-        }
+        if (!invoiceNumber.trim()) return toast.error("Escribe el número de factura.");
+        if (!selectedClientId || !saleLocation || !invoiceItems.length) return toast.error("Faltan datos obligatorios.");
+        
         setLoading(true);
         const client = clients.find(c => c.id === selectedClientId);
         
         const invoiceData = {
-            invoiceNumber,
-            issueDate, // Fecha de la factura real (seleccionada)
-            systemEntryDate: new Date().toISOString(), // Fecha exacta de creación en el sistema
+            invoiceNumber: invoiceNumber.trim().toUpperCase(),
+            issueDate,
+            systemEntryDate: new Date().toISOString(),
             status: saleType === 'Contado' ? 'Pagada' : 'Pendiente',
             clientId: client.id, 
             clientName: client.name, 
+            clientDepartment: client.departamento || 'Cortés', // <-- CAMBIO CLAVE: Se hereda el departamento del cliente
             businessType, 
             saleType, 
             saleLocation,
@@ -110,7 +113,7 @@ const CreateInvoice = () => {
 
         try { 
             await addInvoiceAndProcessStock(invoiceData, saleLocation); 
-            toast.success("Factura Guardada en el Historial"); 
+            toast.success(`Factura ${invoiceNumber} guardada exitosamente.`); 
             navigate('/facturas'); 
         } 
         catch (e) { toast.error(e.message); }
@@ -120,51 +123,71 @@ const CreateInvoice = () => {
     return (
         <AnimatedPage>
             <div className="min-h-screen bg-slate-50 p-4 md:p-8">
-                <div className="flex justify-between items-center mb-6">
-                    <h1 className="text-3xl font-bold text-slate-800 tracking-tight">Nueva Factura <span className="text-blue-500 font-mono text-xl ml-2">#{invoiceNumber}</span></h1>
-                    <button onClick={() => {setInvoiceItems([]); setDiscountPercent(''); setIssueDate(new Date().toISOString().split('T')[0])}} className="text-rose-500 font-bold text-sm bg-rose-50 px-4 py-2 rounded-xl">Limpiar Todo</button>
+                {/* Header Superior */}
+                <div className="flex justify-between items-center mb-8">
+                    <div>
+                        <h1 className="text-4xl font-black text-slate-900 tracking-tighter italic uppercase">Generar Factura</h1>
+                        <p className="text-slate-500 font-bold text-[10px] tracking-widest uppercase mt-1">Marny's de Honduras — Sistema Administrativo</p>
+                    </div>
+                    <button onClick={() => window.location.reload()} className="text-rose-500 font-black text-xs bg-rose-50 px-6 py-3 rounded-2xl hover:bg-rose-100 transition-all uppercase tracking-widest shadow-sm">Limpiar Formulario</button>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                    {/* COLUMNA IZQUIERDA */}
+                    {/* COLUMNA IZQUIERDA: CONFIGURACIÓN */}
                     <div className="lg:col-span-5 space-y-6">
-                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><FiUser/> Configuración General</h3>
-                            <div className="space-y-4">
-                                
-                                {/* NUEVO: CAMPO DE FECHA DE EMISIÓN */}
-                                <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100/50">
-                                    <label className="block text-xs font-bold text-blue-600 uppercase mb-2 flex items-center gap-2">
-                                        <FiCalendar/> Fecha de Factura (Emisión)
-                                    </label>
+                        
+                        {/* TARJETA 1: IDENTIDAD */}
+                        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
+                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2"><FiHash/> Identificación de Documento</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 focus-within:border-blue-400 transition-all shadow-inner">
+                                    <label className="block text-[10px] font-black text-blue-600 uppercase mb-1 tracking-tighter"># de Factura</label>
+                                    <input 
+                                        type="text" 
+                                        value={invoiceNumber} 
+                                        onChange={(e) => setInvoiceNumber(e.target.value)}
+                                        className="w-full bg-transparent border-none p-0 outline-none font-mono font-black text-xl text-slate-800"
+                                        placeholder="F-0000"
+                                    />
+                                </div>
+                                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 focus-within:border-blue-400 transition-all shadow-inner">
+                                    <label className="block text-[10px] font-black text-blue-600 uppercase mb-1 tracking-tighter">Fecha Emisión</label>
                                     <input 
                                         type="date" 
                                         value={issueDate} 
                                         onChange={(e) => setIssueDate(e.target.value)}
-                                        className="w-full p-3 bg-white border border-blue-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-bold text-slate-700 shadow-sm"
+                                        className="w-full bg-transparent border-none p-0 outline-none font-bold text-slate-700 cursor-pointer"
                                     />
-                                    <p className="text-[10px] text-blue-400 mt-2 italic font-medium">* Cambia esta fecha si estás ingresando una factura antigua.</p>
                                 </div>
+                            </div>
+                        </div>
 
+                        {/* TARJETA 2: DATOS DEL CLIENTE Y NEGOCIO */}
+                        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100">
+                            <div className="space-y-5">
                                 <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-1">Cliente</label>
-                                    <select value={selectedClientId} onChange={e => setSelectedClientId(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-blue-400 transition-all">
-                                        <option value="">Seleccionar Cliente...</option>
-                                        {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block flex items-center gap-2"><FiUser/> Cliente</label>
+                                    <select value={selectedClientId} onChange={e => setSelectedClientId(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-bold text-slate-700 focus:ring-2 focus:ring-blue-500/10 transition-all shadow-inner">
+                                        <option value="">-- Selecciona un cliente --</option>
+                                        {clients.map(c => (
+                                            <option key={c.id} value={c.id}>
+                                                {c.name} ({c.departamento || 'Sin Depto'})
+                                            </option>
+                                        ))}
                                     </select>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-sm font-semibold text-slate-700 mb-1 flex items-center gap-1"><FiBriefcase size={14}/> Negocio</label>
-                                        <select value={businessType} onChange={e => setBusinessType(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block flex items-center gap-2"><FiBriefcase/> Negocio</label>
+                                        <select value={businessType} onChange={e => setBusinessType(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-bold text-slate-600 shadow-inner">
                                             <option value="Farmacia">Farmacia</option>
-                                            <option value="Naturista">Naturista</option>
+                                            <option value="Naturista">C. Naturista</option>
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-semibold text-slate-700 mb-1 flex items-center gap-1"><FiTag size={14}/> Venta</label>
-                                        <select value={saleType} onChange={e => setSaleType(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-blue-600">
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block flex items-center gap-2"><FiTag/> Venta</label>
+                                        <select value={saleType} onChange={e => setSaleType(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-black text-blue-600 shadow-inner">
                                             <option value="Contado">Contado</option>
                                             <option value="Crédito">Crédito</option>
                                         </select>
@@ -172,10 +195,10 @@ const CreateInvoice = () => {
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-semibold text-slate-700 mb-2">Sede de Despacho</label>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-3 block text-center">Sede de Despacho</label>
                                     <div className="grid grid-cols-2 gap-3">
                                         {['SPS', 'TGU'].map(loc => (
-                                            <button key={loc} onClick={() => setSaleLocation(loc)} className={`py-3 rounded-xl border font-bold transition-all ${saleLocation === loc ? 'bg-slate-800 text-white border-slate-800 shadow-lg scale-[1.02]' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}>
+                                            <button key={loc} onClick={() => setSaleLocation(loc)} className={`py-4 rounded-2xl border-2 font-black transition-all text-xs uppercase tracking-widest ${saleLocation === loc ? 'bg-slate-900 text-white border-slate-900 shadow-xl' : 'bg-white text-slate-400 border-slate-100 hover:bg-slate-50'}`}>
                                                 {loc === 'SPS' ? 'San Pedro Sula' : 'Tegucigalpa'}
                                             </button>
                                         ))}
@@ -184,38 +207,45 @@ const CreateInvoice = () => {
                             </div>
                         </div>
 
-                        <div className={`bg-white p-6 rounded-2xl shadow-sm border border-slate-100 transition-all ${!saleLocation ? 'opacity-40 pointer-events-none' : ''}`}>
-                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><FiPackage/> Productos</h3>
+                        {/* TARJETA 3: PRODUCTOS */}
+                        <div className={`bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 transition-all ${!saleLocation ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
+                            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><FiPackage/> Selección de Artículos</h3>
                             <Select
                                 options={productOptions} value={selectedProductOption} onChange={setSelectedProductOption}
-                                placeholder="Buscar por nombre..." isSearchable 
-                                styles={{ control: (b) => ({ ...b, borderRadius: '0.75rem', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', padding: '4px' }) }}
+                                placeholder="Escribe el nombre del producto..." isSearchable 
+                                styles={{ control: (b) => ({ ...b, borderRadius: '1rem', backgroundColor: '#f8fafc', border: '1px solid #f1f5f9', padding: '6px', fontWeight: 'bold' }) }}
                             />
-                            <div className="grid grid-cols-2 gap-4 mt-4 mb-4">
-                                <div><label className="text-xs font-bold text-slate-500 block mb-1 uppercase">Cantidad</label>
-                                <input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold" placeholder="0"/></div>
-                                <div><label className="text-xs font-bold text-emerald-600 block mb-1 uppercase">Bonificación</label>
-                                <input type="number" value={bonusQuantity} onChange={e => setBonusQuantity(e.target.value)} className="w-full p-3 bg-emerald-50 border border-emerald-100 rounded-xl outline-none font-bold text-emerald-700" placeholder="0"/></div>
+                            <div className="grid grid-cols-2 gap-4 mt-4 mb-6">
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 block mb-2 uppercase ml-1 tracking-tighter">Venta</label>
+                                    <input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none font-black text-xl text-slate-800 shadow-inner" placeholder="0"/>
+                                </div>
+                                <div>
+                                    <label className="text-[10px] font-black text-emerald-500 block mb-2 uppercase ml-1 tracking-tighter">Bonificación</label>
+                                    <input type="number" value={bonusQuantity} onChange={e => setBonusQuantity(e.target.value)} className="w-full p-4 bg-emerald-50 border border-emerald-100 rounded-2xl outline-none font-black text-xl text-emerald-700 shadow-inner" placeholder="0"/>
+                                </div>
                             </div>
-                            <button onClick={handleAddItem} className="w-full py-4 bg-blue-600 text-white font-bold rounded-xl shadow-lg hover:bg-blue-700 transition-all active:scale-95">Añadir a la Lista</button>
+                            <button onClick={handleAddItem} className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl shadow-xl shadow-blue-200 hover:bg-blue-700 transition-all active:scale-95 uppercase text-xs tracking-[0.2em]">
+                                Agregar a Factura
+                            </button>
                         </div>
                     </div>
 
-                    {/* COLUMNA DERECHA */}
+                    {/* COLUMNA DERECHA: RESUMEN */}
                     <div className="lg:col-span-7 flex flex-col h-full">
-                        <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden flex flex-col flex-grow">
-                            <div className="p-5 bg-slate-50 border-b border-slate-200 flex justify-between items-center font-bold text-slate-700 text-xs uppercase tracking-tighter">
-                                <span className="flex items-center gap-2 font-black"><FiShoppingCart/> Resumen de Factura</span>
-                                <div className="flex gap-2">
-                                    <span className="bg-blue-100 text-blue-600 px-3 py-1 rounded-full">{invoiceItems.length} Líneas</span>
-                                    <span className="bg-slate-200 text-slate-600 px-3 py-1 rounded-full">{issueDate}</span>
+                        <div className="bg-white rounded-[2.5rem] shadow-xl border border-slate-100 overflow-hidden flex flex-col flex-grow">
+                            <div className="p-6 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                                <span className="flex items-center gap-2 font-black text-slate-800 uppercase text-xs tracking-widest"><FiShoppingCart/> Resumen de Factura</span>
+                                <div className="flex gap-2 text-[10px] font-black uppercase tracking-widest">
+                                    <span className="bg-blue-600 text-white px-4 py-1.5 rounded-full shadow-md shadow-blue-200">{invoiceItems.length} Líneas</span>
+                                    <span className="bg-white border border-slate-200 text-slate-500 px-4 py-1.5 rounded-full flex items-center gap-2 shadow-sm"><FiCalendar/> {issueDate}</span>
                                 </div>
                             </div>
                             
-                            <div className="flex-grow overflow-y-auto max-h-[350px]">
+                            <div className="flex-grow overflow-y-auto max-h-[380px] custom-scrollbar">
                                 <table className="w-full text-sm text-left">
-                                    <thead className="bg-white sticky top-0 text-slate-400 font-bold text-[10px] uppercase tracking-wider z-10 shadow-sm">
-                                        <tr><th className="p-4">Descripción</th><th className="p-4 text-center">Cant.</th><th className="p-4 text-right">Unitario</th><th className="p-4 text-right">Total</th><th className="p-4"></th></tr>
+                                    <thead className="bg-white sticky top-0 text-slate-400 font-black text-[10px] uppercase tracking-widest z-10 shadow-sm">
+                                        <tr><th className="p-6">Descripción</th><th className="p-6 text-center">Cant.</th><th className="p-6 text-right">Unitario</th><th className="p-6 text-right">Total</th><th className="p-6"></th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-50">
                                         {Object.values(invoiceItems.reduce((acc, item) => {
@@ -224,61 +254,79 @@ const CreateInvoice = () => {
                                             else { acc[item.productId].q += item.quantity; acc[item.productId].p = item.price; }
                                             return acc;
                                         }, {})).map(item => (
-                                            <tr key={item.productId} className="hover:bg-slate-50 transition-colors">
-                                                <td className="p-4"><div className="font-bold text-slate-800">{item.name}</div>
-                                                {item.b > 0 && <span className="text-[10px] text-emerald-600 font-black uppercase tracking-tighter bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100 flex items-center w-fit mt-1"><FiCheckCircle size={10} className="mr-1"/> Con {item.b} bonificados</span>}</td>
-                                                <td className="p-4 text-center font-bold text-slate-700">{item.q} {item.b > 0 && <span className="text-emerald-500">+{item.b}</span>}</td>
-                                                <td className="p-4 text-right text-slate-500 font-mono">L {item.p.toFixed(2)}</td>
-                                                <td className="p-4 text-right font-black text-slate-900 font-mono">L {(item.q * item.p).toFixed(2)}</td>
-                                                <td className="p-4 text-center"><button onClick={() => setInvoiceItems(invoiceItems.filter(i => i.productId !== item.productId))} className="text-rose-400 hover:text-rose-600 p-2"><FiTrash2/></button></td>
+                                            <tr key={item.productId} className="hover:bg-slate-50 transition-colors group">
+                                                <td className="p-6">
+                                                    <div className="font-black text-slate-800 tracking-tight leading-tight">{item.name}</div>
+                                                    {item.b > 0 && <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-100 flex items-center w-fit mt-2 uppercase tracking-tighter"><FiCheckCircle size={10} className="mr-1"/> Incluye {item.b} bonificados</span>}
+                                                </td>
+                                                <td className="p-6 text-center font-black text-slate-700 text-lg">
+                                                    {item.q} {item.b > 0 && <span className="text-emerald-500">+{item.b}</span>}
+                                                </td>
+                                                <td className="p-6 text-right text-slate-400 font-bold">L {item.p.toFixed(2)}</td>
+                                                <td className="p-6 text-right font-black text-slate-900 font-mono text-lg">L {(item.q * item.p).toFixed(2)}</td>
+                                                <td className="p-6 text-center"><button onClick={() => setInvoiceItems(invoiceItems.filter(i => i.productId !== item.productId))} className="p-3 text-rose-400 hover:bg-rose-50 rounded-xl transition-all"><FiTrash2 size={20}/></button></td>
                                             </tr>
                                         ))}
                                     </tbody>
                                 </table>
+                                {invoiceItems.length === 0 && (
+                                    <div className="py-20 text-center opacity-20">
+                                        <FiShoppingCart size={60} className="mx-auto mb-4" />
+                                        <p className="font-black uppercase tracking-widest text-xs">No hay productos añadidos</p>
+                                    </div>
+                                )}
                             </div>
 
-                            <div className="bg-slate-900 p-8 text-white space-y-4">
-                                <div className="flex justify-between items-center text-slate-400 text-sm">
-                                    <span>SUBTOTAL BRUTO:</span><span className="font-mono font-bold">L {totals.subtotalBruto.toFixed(2)}</span>
+                            {/* PANEL DE TOTALES PREMIUM */}
+                            <div className="bg-slate-900 p-8 text-white space-y-5">
+                                <div className="flex justify-between items-center text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">
+                                    <span>Subtotal Bruto (LPS)</span>
+                                    <span className="font-mono text-sm text-slate-300">L {totals.subtotalBruto.toFixed(2)}</span>
                                 </div>
                                 
-                                <div className="flex justify-between items-center border-y border-slate-800 py-5">
-                                    <div className="flex items-center gap-2 text-blue-400 text-sm font-black uppercase tracking-widest">
-                                        <FiTag/> DESCUENTO (%) :
+                                <div className="flex justify-between items-center border-y border-slate-800 py-6">
+                                    <div className="flex items-center gap-2 text-blue-400 text-sm font-black uppercase tracking-[0.2em]">
+                                        <FiTag/> Descuento Global (%)
                                     </div>
-                                    <div className="relative w-32">
+                                    <div className="relative w-36">
                                         <input 
                                             type="text" inputMode="decimal"
                                             value={discountPercent} 
                                             onChange={e => setDiscountPercent(e.target.value.replace(/[^0-9.]/g, ''))} 
-                                            className="w-full bg-slate-800 border-2 border-slate-700 rounded-2xl py-3 px-4 text-right font-mono text-2xl text-blue-400 focus:border-blue-500 outline-none shadow-inner"
+                                            className="w-full bg-slate-800 border-2 border-slate-700 rounded-2xl py-3 px-5 text-right font-mono text-2xl text-blue-400 focus:border-blue-500 outline-none transition-all shadow-inner"
                                             placeholder="0"
                                         />
-                                        <FiPercent className="absolute left-3 top-4 text-slate-600" size={14}/>
+                                        <FiPercent className="absolute left-4 top-4.5 text-slate-600" size={16}/>
                                     </div>
                                 </div>
 
-                                <div className="space-y-1">
-                                    <div className="flex justify-between text-xs text-rose-400 font-bold uppercase tracking-tighter">
-                                        <span>Valor Descontado:</span><span>- L {totals.discountValue.toFixed(2)}</span>
+                                <div className="space-y-2">
+                                    <div className="flex justify-between text-xs font-black uppercase text-rose-400 tracking-widest">
+                                        <span>Valor Descontado</span><span className="font-mono">- L {totals.discountValue.toFixed(2)}</span>
                                     </div>
-                                    <div className="flex justify-between text-sm font-medium text-slate-300">
-                                        <span>NETO SIN IMPUESTO:</span><span className="font-mono">L {totals.subtotalNeto.toFixed(2)}</span>
+                                    <div className="flex justify-between text-sm font-bold text-slate-300 tracking-tight">
+                                        <span>NETO SIN ISV:</span><span className="font-mono">L {totals.subtotalNeto.toFixed(2)}</span>
                                     </div>
-                                    <div className="flex justify-between text-xs text-slate-400">
-                                        <span>ISV (15%):</span><span className="font-mono">L {totals.tax.toFixed(2)}</span>
+                                    <div className="flex justify-between text-xs font-bold text-slate-500 tracking-tight">
+                                        <span>ISV (15%):</span><span className="font-mono text-rose-300">L {totals.tax.toFixed(2)}</span>
                                     </div>
-                                    <div className="flex justify-between items-center pt-6 border-t border-slate-800 mt-4">
-                                        <span className="text-xl font-black tracking-tighter uppercase text-blue-400">Total a Pagar</span>
-                                        <span className="text-5xl font-black text-white font-mono tracking-tighter">L {totals.total.toFixed(2)}</span>
+                                    
+                                    <div className="flex justify-between items-center pt-8 border-t border-slate-800 mt-4">
+                                        <span className="text-xl font-black tracking-tighter uppercase text-blue-400">Total a Cobrar</span>
+                                        <div className="text-right">
+                                            <span className="text-5xl font-black text-white font-mono tracking-tighter drop-shadow-lg">L {totals.total.toFixed(2)}</span>
+                                            <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mt-1">Lempiras Hondureños</p>
+                                        </div>
                                     </div>
                                 </div>
 
-                                <button onClick={handleSubmit} disabled={loading || !invoiceItems.length} className="w-full py-5 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-3xl shadow-xl transition-all active:scale-95 disabled:opacity-50 text-lg flex items-center justify-center gap-3 uppercase tracking-tighter">
-                                    {loading ? 'INGRESANDO REGISTRO...' : <><FiDollarSign size={24}/> CONFIRMAR Y GUARDAR VENTA</>}
+                                <button onClick={handleSubmit} disabled={loading || !invoiceItems.length} className="w-full py-6 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-3xl shadow-2xl shadow-blue-900 transition-all active:scale-95 disabled:opacity-50 text-xl flex items-center justify-center gap-4 uppercase tracking-[0.1em]">
+                                    {loading ? 'Generando Registro...' : <><FiDollarSign size={28}/> Confirmar Factura</>}
                                 </button>
                                 
-                                <p className="text-[10px] text-slate-500 text-center font-bold uppercase tracking-[0.1em]">La fecha de registro será: {new Date().toLocaleDateString()}</p>
+                                <p className="text-[10px] text-slate-500 text-center font-bold uppercase tracking-widest italic opacity-50">
+                                    Esta factura se guardará bajo el departamento de: {(clients.find(c => c.id === selectedClientId))?.departamento || '---'}
+                                </p>
                             </div>
                         </div>
                     </div>
