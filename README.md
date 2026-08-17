@@ -13,7 +13,11 @@ is written to an append-only ledger, so any batch can be traced end to end.
 > Built as my engineering thesis project (CEUTEC/UNITEC, 2026) and deployed for real daily use.
 > The UI is in Spanish, the language of its users.
 
-**Live demo:** _(coming — see [Demo setup](#demo-setup))_
+**Live demo:** **[marnystock.vercel.app](https://marnystock.vercel.app)** — sign in with
+`demo@marnystock.app` / `demo1234`. It runs on a throwaway Firebase project with seeded data:
+poke around, sell something, void an invoice. The real deployment holds a customer's data and
+is not public.
+
 **Stack:** React 19 · Vite · Tailwind CSS · Firebase (Auth + Firestore + Storage) · Chart.js
 
 ![Dashboard](docs/screenshots/dashboard.jpg)
@@ -118,7 +122,10 @@ Firebase project with fake data:
 2. Copy the web app config into `.env` (see `.env.example`).
 3. Run `npm run seed:demo`. It signs in as `SEED_EMAIL`, creating that account on first run,
    and loads products, batches with staggered expiry dates, clients and invoices with payments.
-4. Deploy to Vercel with the same environment variables.
+4. Deploy to Vercel with the same `VITE_FIREBASE_*` variables (the `SEED_*` ones are only for
+   the seeding script and do not belong in the deployment).
+5. Add the deployed domain under **Firebase → Authentication → Settings → Authorized domains**,
+   or sign-in fails with `auth/unauthorized-domain` even though the credentials are valid.
 
 ## License
 
