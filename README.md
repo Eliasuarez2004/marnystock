@@ -16,11 +16,14 @@ is written to an append-only ledger, so any batch can be traced end to end.
 **Live demo:** _(coming — see [Demo setup](#demo-setup))_
 **Stack:** React 19 · Vite · Tailwind CSS · Firebase (Auth + Firestore + Storage) · Chart.js
 
-<!-- Screenshots: replace with real captures
-![Dashboard](docs/screenshot-dashboard.png)
-![Inventory / FEFO](docs/screenshot-inventory.png)
-![Invoice](docs/screenshot-invoice.png)
--->
+![Dashboard](docs/screenshots/dashboard.jpg)
+_Dashboard: revenue for the period, receivables, inventory value and expiry alerts._
+
+![Inventory and batch traceability](docs/screenshots/inventory-fefo.jpg)
+_Inventory by batch: expiry date, stock per branch and the status that drives FEFO._
+
+![Accounts receivable](docs/screenshots/receivables.jpg)
+_Receivables: each credit invoice keeps its balance until payments clear it._
 
 ---
 
@@ -110,13 +113,12 @@ Being explicit about these is part of the point:
 The production instance holds a real customer's data, so the public demo runs on a separate
 Firebase project with fake data:
 
-1. Create a free Firebase project and enable **Authentication (email/password)**, **Firestore** and **Storage**.
-2. Create a user, e.g. `demo@marnystock.app` / `demo1234`.
-3. Copy the web app config into `.env` (see `.env.example`).
-4. Run `npm run seed:demo` to load the demo dataset.
-5. Deploy to Vercel with the same environment variables.
-
-Then put the URL and the demo credentials at the top of this file.
+1. Create a free Firebase project and enable **Authentication (email/password)** and **Firestore**.
+   Restrict Firestore to signed-in clients: `allow read, write: if request.auth != null;`.
+2. Copy the web app config into `.env` (see `.env.example`).
+3. Run `npm run seed:demo`. It signs in as `SEED_EMAIL`, creating that account on first run,
+   and loads products, batches with staggered expiry dates, clients and invoices with payments.
+4. Deploy to Vercel with the same environment variables.
 
 ## License
 

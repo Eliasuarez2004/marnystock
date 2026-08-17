@@ -10,7 +10,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import {
   getFirestore, collection, doc, getDocs, writeBatch, limit, query,
 } from 'firebase/firestore';
@@ -75,11 +75,26 @@ const BATCH_PLAN = [
   { suffix: 'C', expiry: inDays(320), sps: 120, tgu: 90, supplier: 'Importadora Andina' },
 ];
 
+/**
+ * Signs in with the demo account, creating it on first run: a fresh Firebase project has an
+ * empty Authentication tab, and the security rules only let signed-in clients write.
+ */
+async function signIn() {
+  try {
+    return await signInWithEmailAndPassword(auth, env.SEED_EMAIL, env.SEED_PASSWORD);
+  } catch (error) {
+    const missing = ['auth/user-not-found', 'auth/invalid-credential'].includes(error.code);
+    if (!missing) throw error;
+    console.log(`Creating the demo account ${env.SEED_EMAIL}`);
+    return createUserWithEmailAndPassword(auth, env.SEED_EMAIL, env.SEED_PASSWORD);
+  }
+}
+
 async function main() {
   if (!env.VITE_FIREBASE_PROJECT_ID) throw new Error('.env is missing VITE_FIREBASE_PROJECT_ID');
   console.log(`\nSeeding demo data into project "${env.VITE_FIREBASE_PROJECT_ID}"`);
 
-  await signInWithEmailAndPassword(auth, env.SEED_EMAIL, env.SEED_PASSWORD);
+  await signIn();
   console.log(`Signed in as ${env.SEED_EMAIL}`);
 
   const existing = await getDocs(query(collection(db, 'products'), limit(1)));
