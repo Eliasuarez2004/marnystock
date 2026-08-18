@@ -8,7 +8,7 @@ import {
 } from 'react-icons/fi';
 import { format, differenceInDays } from 'date-fns';
 import { toast } from 'react-toastify';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 import Swal from 'sweetalert2';
 import { parseDateStringAsLocal } from '../utils/dateUtils';
 import NewEntryModal from '../components/NewEntryModal';
@@ -220,7 +220,7 @@ const Inventory = () => {
                     if (lot.stockSPS > 0) await createInventoryMovement({ type: 'SALIDA_AJUSTE', lotId: lot.id, fromLocation: 'SPS', quantity: lot.stockSPS, reason: 'Eliminación manual de lote' });
                     if (lot.stockTGU > 0) await createInventoryMovement({ type: 'SALIDA_AJUSTE', lotId: lot.id, fromLocation: 'TGU', quantity: lot.stockTGU, reason: 'Eliminación manual de lote' });
                     toast.success(`Lote eliminado correctamente`);
-                } catch (error) { toast.error("Error al procesar la eliminación"); }
+                } catch { toast.error("Error al procesar la eliminación"); }
             }
         });
     };

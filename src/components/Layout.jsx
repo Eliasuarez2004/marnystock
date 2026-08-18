@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase/config';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import { FiHome, FiBox, FiLayers, FiUsers, FiFileText, FiBarChart2, FiLogOut, FiMenu, FiBell } from 'react-icons/fi';
 import MarnystockLogo from '../assets/marnystock-logo.png'; 
 

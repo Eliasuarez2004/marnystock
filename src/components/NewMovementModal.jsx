@@ -3,7 +3,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { toast } from 'react-toastify';
 import { createInventoryMovement } from '../firebase/inventoryService';
 import Select from 'react-select';
-import { motion } from 'framer-motion';
 
 const movementTypes = [
     { value: 'TRASLADO', label: 'Traslado entre Sedes', from: true, to: true, isExit: true },

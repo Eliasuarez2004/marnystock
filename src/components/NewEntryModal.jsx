@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { addMultiProductEntry } from '../firebase/inventoryService';
 import { FiPlus, FiTrash2, FiX, FiCheck } from 'react-icons/fi';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 
 const NewEntryModal = ({ isOpen, onClose, productTypes }) => {
     const [lotNumber, setLotNumber] = useState('');
@@ -36,7 +36,7 @@ const NewEntryModal = ({ isOpen, onClose, productTypes }) => {
         try {
             await addMultiProductEntry({ lotNumber, supplier, items: entryItems });
             toast.success('Entrada registrada'); onClose();
-        } catch (e) { toast.error('Error al registrar'); }
+        } catch { toast.error('Error al registrar'); }
         setLoading(false);
     };
 

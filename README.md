@@ -1,5 +1,7 @@
 # Marnystock — Inventory & billing for perishable stock
 
+[![CI](https://github.com/Eliasuarez2004/marnystock/actions/workflows/ci.yml/badge.svg)](https://github.com/Eliasuarez2004/marnystock/actions/workflows/ci.yml)
+
 Small distributors that sell products with an expiry date have a problem spreadsheets cannot
 solve: **which physical batch leaves the warehouse when you sell one unit?** Get it wrong and
 product expires on the shelf while newer stock ships first, invoices stop matching real
@@ -18,7 +20,7 @@ is written to an append-only ledger, so any batch can be traced end to end.
 poke around, sell something, void an invoice. The real deployment holds a customer's data and
 is not public.
 
-**Stack:** React 19 · Vite · Tailwind CSS · Firebase (Auth + Firestore + Storage) · Chart.js
+**Stack:** React 19 · Vite · Tailwind CSS · Firebase (Auth + Firestore + Storage) · Chart.js · Vitest
 
 ![Dashboard](docs/screenshots/dashboard.jpg)
 _Dashboard: revenue for the period, receivables, inventory value and expiry alerts._
@@ -46,6 +48,12 @@ clients, invoices with partial payments):
 
 ```bash
 npm run seed:demo         # see scripts/seed-demo.mjs
+```
+
+The rules that decide stock and money run without Firebase, so the test suite needs no setup:
+
+```bash
+npm test                  # vitest run — 24 tests
 ```
 
 ## What it does
@@ -80,6 +88,25 @@ invoices/{id}/payments      amount, method, paymentDate
 Movement types: `ENTRADA_COMPRA`, `SALIDA_VENTA`, `SALIDA_BONIFICACION`,
 `TRASLADO`, `ENTRADA_DEVOLUCION`.
 
+## Where the rules live
+
+The interesting part of this app is not the Firestore calls — it is deciding *which batch
+gives up units* and *what a payment does to an invoice*. Those decisions were extracted into
+`src/domain/`, plain functions with no Firebase import:
+
+| Function | Decides |
+|---|---|
+| `planFEFODiscount` | How many units each batch gives up for a sale, walking batches by expiry date and splitting across them. Fails without touching anything when the branch cannot cover the quantity. |
+| `planReversal` | Where returned units land when an invoice is voided (the latest-expiring batch of that product). |
+| `computeInvoiceTotals` | Gross subtotal, global discount, 15% ISV and total — with bonus lines counted as stock but not as revenue. |
+| `applyPayment` | The new balance and status of a credit invoice: `Pendiente → Abonada → Pagada`. |
+
+The Firestore services (`src/firebase/*.js`) now read documents, hand them to these functions
+and write back the plan. That is what makes the critical path testable: **24 Vitest tests**
+(`src/domain/*.test.js`) cover FEFO splitting across batches, per-branch stock, the failure
+that writes nothing, the reversal target, tax with bonuses and discounts, and the payment
+state machine. CI runs lint, tests and build on every push.
+
 ## Design decisions and trade-offs
 
 | Decision | Why | What it costs |
@@ -101,12 +128,14 @@ Being explicit about these is part of the point:
 - **No role system.** Every authenticated user can do everything. The business runs with a few
   trusted users; a bigger one would need permissions.
 - **Business rules are enforced in the client.** Fine for an internal tool, wrong for anything public.
-- **No automated tests.** The critical path — FEFO splitting and the void/reversal — is what I would cover first.
+- **Tests cover the decisions, not the wiring.** The domain layer is tested; the Firestore
+  services and the UI are not. Integration tests against the emulator are the next step.
 
 ## Roadmap
 
 - [ ] Move the FEFO discount into a Cloud Function so it is atomic and server-authoritative
-- [ ] Tests for FEFO splitting across batches and for the void/reversal path
+- [x] Tests for FEFO splitting across batches and for the void/reversal path
+- [ ] Integration tests against the Firebase emulator
 - [ ] Roles (warehouse / sales / admin)
 - [ ] Batch label printing with barcodes
 

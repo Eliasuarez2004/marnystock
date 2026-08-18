@@ -5,7 +5,6 @@ import { useNavigate } from 'react-router-dom';
 import AnimatedPage from '../components/AnimatedPage';
 import { Bar } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
-import { motion } from 'framer-motion';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 

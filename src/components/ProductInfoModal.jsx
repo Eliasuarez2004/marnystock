@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { FiX, FiSave, FiUploadCloud } from 'react-icons/fi';
-import { motion } from 'framer-motion';
 
 const ProductInfoModal = ({ isOpen, onClose, onSave, productToEdit }) => {
   const [product, setProduct] = useState({ name: '', description: '', price: '' });
@@ -17,7 +16,7 @@ const ProductInfoModal = ({ isOpen, onClose, onSave, productToEdit }) => {
   const handleSubmit = async (e) => {
     e.preventDefault(); setLoading(true);
     try { await onSave(product, imageFile); toast.success('Producto guardado'); onClose(); } 
-    catch (err) { toast.error('Error al guardar'); }
+    catch { toast.error('Error al guardar'); }
     setLoading(false);
   };
 

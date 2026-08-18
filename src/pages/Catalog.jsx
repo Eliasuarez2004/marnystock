@@ -66,7 +66,7 @@ const Catalog = () => {
                 try {
                     await deleteProductAndAssociatedLots(product);
                     Swal.fire({ title: '¡Eliminado!', icon: 'success', timer: 1500, showConfirmButton: false, customClass: { popup: 'rounded-2xl' } });
-                } catch(error) {
+                } catch {
                     Swal.fire({ title: 'Error', text: 'No se pudo eliminar.', icon: 'error', customClass: { popup: 'rounded-2xl' } });
                 }
             }

@@ -4,7 +4,7 @@ import { getInvoices, getInvoicePayments, addPaymentToInvoice, anullInvoice } fr
 import AnimatedPage from '../components/AnimatedPage';
 import { toast } from 'react-toastify';
 import { FiEye, FiPlus, FiXOctagon, FiSearch, FiFileText, FiX, FiCheck, FiDollarSign, FiGift } from 'react-icons/fi';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 
 // --- CONFIGURACIÓN DE ESTILOS ---
 const STATUS_STYLES = {
@@ -207,7 +207,7 @@ const AddPaymentModal = ({ isOpen, onClose, invoice }) => {
         try {
             await addPaymentToInvoice(invoice, { amount: paymentAmount, paymentMethod, reference });
             toast.success('Abono registrado'); onClose();
-        } catch (error) { toast.error('Error al registrar'); }
+        } catch { toast.error('Error al registrar'); }
         setLoading(false);
     };
 
@@ -238,7 +238,7 @@ const AddPaymentModal = ({ isOpen, onClose, invoice }) => {
 // ==========================================
 // COMPONENTE: MODAL ANULAR
 // ==========================================
-const AnullInvoiceModal = ({ isOpen, onClose, invoice, onConfirm }) => {
+const AnullInvoiceModal = ({ isOpen, onClose, onConfirm }) => {
     const [reason, setReason] = useState('');
     const [loading, setLoading] = useState(false);
     if (!isOpen) return null;

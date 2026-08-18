@@ -1,7 +1,6 @@
 // src/components/ProductDetailModal.jsx (VERSIÓN FINAL "CENTRO DE INTELIGENCIA")
 import React, { useMemo } from 'react';
 import { format, differenceInDays } from 'date-fns';
-import { motion } from 'framer-motion';
 import { parseDateStringAsLocal } from '../utils/dateUtils';
 
 // Componente de Badge de Estado para reutilizar

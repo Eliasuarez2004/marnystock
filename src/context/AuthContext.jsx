@@ -1,17 +1,10 @@
 // src/context/AuthContext.jsx
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../firebase/config';
+import { AuthContext } from './useAuth';
 
-// 1. Crear el contexto
-const AuthContext = createContext();
-
-// 2. Crear un hook personalizado para usar el contexto
-export const useAuth = () => {
-  return useContext(AuthContext);
-};
-
-// 3. Crear el proveedor del contexto
+// El proveedor del contexto
 export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);

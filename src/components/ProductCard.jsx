@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react';
 import { FiEdit, FiTrash2, FiBox } from 'react-icons/fi';
-import { parseDateStringAsLocal } from '../utils/dateUtils';
 
 const ProductCard = ({ product, onEdit, onDelete, onViewDetails }) => {
     const { totalStock, status, lotCount } = useMemo(() => {

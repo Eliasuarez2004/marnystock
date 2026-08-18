@@ -10,7 +10,7 @@ import {
     FiPieChart, FiTrendingUp, FiUsers, FiPackage, FiDollarSign, 
     FiStar, FiAlertCircle, FiTag, FiCalendar, FiFilter, FiMapPin, FiX, FiActivity 
 } from 'react-icons/fi';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 

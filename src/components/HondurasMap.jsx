@@ -1,5 +1,4 @@
 import React from 'react';
-import { motion } from 'framer-motion';
 import { FiMapPin } from 'react-icons/fi';
 
 const HondurasMap = ({ data, onSelectDept, selectedDept }) => {
