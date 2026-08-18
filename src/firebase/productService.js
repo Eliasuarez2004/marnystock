@@ -1,6 +1,6 @@
 // src/firebase/productService.js 
 import { db, storage } from './config';
-import { collection, doc, writeBatch, onSnapshot, getDocs, query, where, getDoc } from 'firebase/firestore';
+import { collection, doc, writeBatch, onSnapshot, getDocs, query, where } from 'firebase/firestore';
 import { ref, deleteObject, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { nanoid } from 'nanoid';
 

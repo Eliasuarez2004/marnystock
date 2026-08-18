@@ -6,13 +6,14 @@ import { getClients } from '../firebase/clientService';
 import { getProductTypesStream } from '../firebase/productService';
 import { getInventoryLotsStream } from '../firebase/inventoryService';
 import { addInvoiceAndProcessStock, getNextInvoiceNumber } from '../firebase/invoiceService';
+import { computeInvoiceTotals } from '../domain/billing';
 import AnimatedPage from '../components/AnimatedPage';
 import { 
     FiTrash2, FiShoppingCart, FiUser, FiPackage, FiCheckCircle, 
     FiTag, FiBriefcase, FiPercent, FiDollarSign, FiCalendar, 
     FiHash, FiMapPin, FiStar, FiLock 
 } from 'react-icons/fi';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 
 const CreateInvoice = () => {
     const navigate = useNavigate();
@@ -108,15 +109,10 @@ const CreateInvoice = () => {
         setSelectedProductOption(null); setQuantity(''); setBonusQuantity(''); setCustomPrice('');
     };
 
-    const totals = useMemo(() => {
-        const subtotalBruto = invoiceItems.filter(i => !i.isBonus).reduce((acc, item) => acc + (item.price * item.quantity), 0);
-        const pct = Number(discountPercent) || 0;
-        const discountValue = subtotalBruto * (pct / 100);
-        const subtotalNeto = subtotalBruto - discountValue;
-        const tax = subtotalNeto * 0.15;
-        const total = subtotalNeto + tax;
-        return { subtotalBruto, discountValue, subtotalNeto, tax, total };
-    }, [invoiceItems, discountPercent]);
+    const totals = useMemo(
+        () => computeInvoiceTotals(invoiceItems, discountPercent),
+        [invoiceItems, discountPercent]
+    );
 
     const handleSubmit = async () => {
         if (!invoiceNumber.trim()) return toast.error("Escribe el número de factura.");

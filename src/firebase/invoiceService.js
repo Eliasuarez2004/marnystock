@@ -3,7 +3,9 @@ import {
     collection, addDoc, getDocs, doc, runTransaction, query, 
     orderBy, limit, updateDoc, onSnapshot, where 
 } from 'firebase/firestore'; 
-import { processFEFODiscount, createInventoryMovement } from './inventoryService';
+import { processFEFODiscount } from './inventoryService';
+import { planReversal, stockFieldFor } from '../domain/fefo';
+import { applyPayment } from '../domain/billing';
 
 // --- GENERAR NÚMERO DE FACTURA ---
 export const getNextInvoiceNumber = async () => {
@@ -93,21 +95,9 @@ export const addPaymentToInvoice = async (invoice, paymentData) => {
         createdAt: new Date()
     });
 
-    // 2. Calcular nuevos saldos
-    const newAmountPaid = (invoice.amountPaid || 0) + Number(paymentData.amount);
-    const newBalanceDue = Math.max(0, invoice.total - newAmountPaid);
-    
-    // Determinar nuevo estado basado en saldo
-    let newStatus = invoice.status;
-    if (newBalanceDue <= 0.01) newStatus = 'Pagada';
-    else if (newAmountPaid > 0) newStatus = 'Abonada';
-
+    // 2. Recalcular saldos y estado (regla en src/domain/billing.js, con pruebas)
     const invoiceRef = doc(db, "invoices", invoice.id);
-    await updateDoc(invoiceRef, {
-        amountPaid: newAmountPaid,
-        balanceDue: newBalanceDue,
-        status: newStatus
-    });
+    await updateDoc(invoiceRef, applyPayment(invoice, paymentData.amount));
 };
 
 // --- ANULAR FACTURA Y REVERTIR STOCK ---
@@ -124,28 +114,26 @@ export const anullInvoice = async (invoice, reason) => {
 
             // 2. Devolver stock al inventario
             for (const item of invoice.items) {
-                // Al anular, no sabemos exactamente de qué lote salió originalmente (FEFO es dinámico)
-                // Por lo tanto, buscamos el LOTE MÁS RECIENTE (último en vencer) de ese producto 
-                // en esa sede para devolverle la existencia.
-                
-                const stockField = invoice.saleLocation === 'SPS' ? 'stockSPS' : 'stockTGU';
+                // Al anular no se sabe de qué lote salió cada unidad (FEFO es dinámico):
+                // planReversal elige el lote de vencimiento más lejano (src/domain/fefo.js).
+                const stockField = stockFieldFor(invoice.saleLocation);
                 const q = query(
-                    collection(db, "inventory_lots"), 
+                    collection(db, "inventory_lots"),
                     where("productId", "==", item.productId),
-                    orderBy("expiryDate", "desc"), // Devolvemos al lote con fecha más lejana
-                    limit(1)
+                    orderBy("expiryDate", "desc")
                 );
-                
+
                 const lotSnapshot = await getDocs(q);
-                
-                if (!lotSnapshot.empty) {
-                    const targetLot = lotSnapshot.docs[0];
-                    const targetLotData = targetLot.data();
-                    
+                const lots = lotSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                const devolucion = planReversal(lots, { quantity: item.quantity });
+
+                if (devolucion) {
+                    const targetLotData = lots.find(l => l.id === devolucion.lotId);
+
                     // Actualizamos el stock del lote encontrado
-                    const lotRef = doc(db, "inventory_lots", targetLot.id);
+                    const lotRef = doc(db, "inventory_lots", devolucion.lotId);
                     transaction.update(lotRef, {
-                        [stockField]: (targetLotData[stockField] || 0) + item.quantity
+                        [stockField]: (Number(targetLotData[stockField]) || 0) + devolucion.quantity
                     });
 
                     // Registramos la entrada por devolución en el Kardex
@@ -153,12 +141,12 @@ export const anullInvoice = async (invoice, reason) => {
                     transaction.set(movementRef, {
                         date: new Date().getTime(),
                         type: 'ENTRADA_DEVOLUCION',
-                        lotId: targetLot.id,
-                        lotNumber: targetLotData.lotNumber,
+                        lotId: devolucion.lotId,
+                        lotNumber: devolucion.lotNumber,
                         productId: item.productId,
-                        productName: targetLotData.productName,
+                        productName: devolucion.productName,
                         toLocation: invoice.saleLocation,
-                        quantity: item.quantity,
+                        quantity: devolucion.quantity,
                         reason: `Anulación Factura #${invoice.invoiceNumber}: ${reason}`
                     });
                 }

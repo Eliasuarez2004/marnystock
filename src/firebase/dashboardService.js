@@ -1,6 +1,6 @@
 import { db } from './config';
 import { collection, getDocs } from 'firebase/firestore';
-import { startOfMonth, endOfMonth, subMonths, startOfYear, endOfYear, subDays, startOfDay } from 'date-fns';
+import { startOfMonth, endOfMonth, subMonths, startOfYear, endOfYear, subDays, subYears, startOfDay } from 'date-fns';
 
 const getAllData = async () => {
     const [inventoryLotsSnapshot, clientsSnapshot, invoicesSnapshot, productTypesSnapshot] = await Promise.all([

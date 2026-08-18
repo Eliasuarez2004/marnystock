@@ -1,6 +1,7 @@
 import { db } from './config';
 // Se ha añadido 'getDocs', 'query', 'where' y 'orderBy' necesarios para la función FEFO
-import { collection, doc, writeBatch, onSnapshot, getDoc, query, orderBy, addDoc, where, updateDoc, getDocs } from 'firebase/firestore';
+import { collection, doc, writeBatch, onSnapshot, getDoc, query, orderBy, where, updateDoc, getDocs } from 'firebase/firestore';
+import { planFEFODiscount, stockFieldFor } from '../domain/fefo';
 
 // Obtiene todos los lotes de inventario en tiempo real
 export const getInventoryLotsStream = (callback) => {
@@ -59,7 +60,7 @@ export const addMultiProductEntry = async (entryData) => {
 
 // --- FUNCIÓN EXISTENTE: MANEJA MOVIMIENTOS MANUALES DE UN LOTE ESPECÍFICO ---
 export const createInventoryMovement = async (movementData) => {
-    const { type, lotId, fromLocation, toLocation, quantity, reason } = movementData;
+    const { lotId, fromLocation, toLocation, quantity } = movementData;
     
     // Validaciones para esta función manual (siempre requiere LotId)
     if (!lotId) throw new Error("createInventoryMovement requiere lotId.");
@@ -102,77 +103,50 @@ export const createInventoryMovement = async (movementData) => {
     await batch.commit();
 };
 
-// --- ¡NUEVA FUNCIÓN! MANEJA DESCUENTOS FEFO DESDE FACTURACIÓN ---
-// Esta función es la que debe ser llamada por invoiceService.js
+// --- DESCUENTO FEFO DESDE FACTURACIÓN ---
+// El reparto entre lotes lo decide planFEFODiscount (src/domain/fefo.js, con pruebas);
+// aquí solo se lee el inventario y se escribe el resultado.
 export const processFEFODiscount = async (movementData) => {
     const { type, productId, fromLocation, quantity, reason } = movementData;
-    
-    // 1. VALIDACIÓN ESENCIAL
-    if (!productId || !fromLocation || !quantity) {
+
+    if (!productId) {
         throw new Error("Datos FEFO incompletos. Se requiere Producto, Sede de Origen y Cantidad.");
     }
-    
-    // 2. OBTENER LOTES DEL PRODUCTO Y ORDENAR POR VENCIMIENTO (FEFO)
-    const stockField = fromLocation === 'SPS' ? 'stockSPS' : 'stockTGU';
-    
+
+    const stockField = stockFieldFor(fromLocation);
+
     const productLotsQuery = query(
         collection(db, "inventory_lots"),
         where("productId", "==", productId),
         where(stockField, ">", 0),
         orderBy("expiryDate", "asc") // FEFO
     );
-    
+
     const lotsSnapshot = await getDocs(productLotsQuery);
-    let quantityRemaining = quantity;
+    const lots = lotsSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
 
-    if (lotsSnapshot.empty) {
-        throw new Error(`Stock insuficiente. 0 unidades activas en la sede ${fromLocation}.`);
-    }
+    // Lanza si el stock no alcanza: nada se escribe.
+    const plan = planFEFODiscount(lots, { location: fromLocation, quantity });
 
-    // 3. DESCONTAR LOTES EN ORDEN FEFO
-    const movementRecords = []; // Guardar los movimientos para registrar al final
     const batch = writeBatch(db);
+    const stockPorLote = new Map(lots.map(l => [l.id, Number(l[stockField]) || 0]));
 
-    for (const lotDoc of lotsSnapshot.docs) {
-        if (quantityRemaining <= 0) break;
+    plan.forEach(asignacion => {
+        batch.update(doc(db, "inventory_lots", asignacion.lotId), {
+            [stockField]: stockPorLote.get(asignacion.lotId) - asignacion.quantity
+        });
 
-        const lotData = lotDoc.data();
-        const lotRef = doc(db, "inventory_lots", lotDoc.id);
-        
-        const availableStock = lotData[stockField] || 0;
-        const quantityToUse = Math.min(quantityRemaining, availableStock);
-        
-        if (quantityToUse > 0) {
-            // 3a. Prepara la actualización del Lote
-            batch.update(lotRef, {
-                [stockField]: availableStock - quantityToUse
-            });
-
-            // 3b. Registra el movimiento en el Kardex (inventory_movements)
-            movementRecords.push({
-                date: new Date().getTime(),
-                type: type,
-                lotId: lotDoc.id,
-                lotNumber: lotData.lotNumber,
-                productId: productId,
-                productName: lotData.productName,
-                fromLocation: fromLocation,
-                quantity: quantityToUse,
-                reason: reason // Razón de la Factura (Venta/Bono)
-            });
-            
-            quantityRemaining -= quantityToUse;
-        }
-    }
-    
-    // 4. VERIFICACIÓN FINAL Y ESCRITURA
-    if (quantityRemaining > 0) {
-        throw new Error(`Stock insuficiente. Faltaron ${quantityRemaining} unidades para completar la orden.`);
-    }
-
-    // Registrar todos los movimientos de Kardex
-    movementRecords.forEach(m => {
-        batch.set(doc(collection(db, 'inventory_movements')), m);
+        batch.set(doc(collection(db, 'inventory_movements')), {
+            date: new Date().getTime(),
+            type: type,
+            lotId: asignacion.lotId,
+            lotNumber: asignacion.lotNumber,
+            productId: productId,
+            productName: asignacion.productName,
+            fromLocation: fromLocation,
+            quantity: asignacion.quantity,
+            reason: reason // Razón de la Factura (Venta/Bono)
+        });
     });
 
     await batch.commit();
