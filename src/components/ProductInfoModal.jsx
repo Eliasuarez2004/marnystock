@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { FiX, FiSave, FiUploadCloud } from 'react-icons/fi';
+import { motion } from 'framer-motion';
 
 const ProductInfoModal = ({ isOpen, onClose, onSave, productToEdit }) => {
   const [product, setProduct] = useState({ name: '', description: '', price: '' });

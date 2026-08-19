@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { addMultiProductEntry } from '../firebase/inventoryService';
 import { FiPlus, FiTrash2, FiX, FiCheck } from 'react-icons/fi';
-import { AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const NewEntryModal = ({ isOpen, onClose, productTypes }) => {
     const [lotNumber, setLotNumber] = useState('');

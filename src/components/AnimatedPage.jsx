@@ -1,4 +1,5 @@
 // src/components/AnimatedPage.jsx
+import { motion } from 'framer-motion';
 
 const animations = {
     initial: { opacity: 0, x: 50 },

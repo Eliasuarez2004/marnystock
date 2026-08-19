@@ -1,5 +1,6 @@
 // src/components/CursorTrail.jsx
 import React, { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
 
 const CursorTrail = () => {
   const [points, setPoints] = useState([]);

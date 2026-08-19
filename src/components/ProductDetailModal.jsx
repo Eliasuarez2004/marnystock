@@ -2,6 +2,7 @@
 import React, { useMemo } from 'react';
 import { format, differenceInDays } from 'date-fns';
 import { parseDateStringAsLocal } from '../utils/dateUtils';
+import { motion } from 'framer-motion';
 
 // Componente de Badge de Estado para reutilizar
 const StatusBadge = ({ expiryDateStr }) => {

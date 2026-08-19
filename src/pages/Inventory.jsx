@@ -8,7 +8,7 @@ import {
 } from 'react-icons/fi';
 import { format, differenceInDays } from 'date-fns';
 import { toast } from 'react-toastify';
-import { AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import Swal from 'sweetalert2';
 import { parseDateStringAsLocal } from '../utils/dateUtils';
 import NewEntryModal from '../components/NewEntryModal';

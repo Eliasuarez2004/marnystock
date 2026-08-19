@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FiX, FiSave, FiMapPin, FiStar } from 'react-icons/fi';
+import { motion } from 'framer-motion';
 
 // Lista oficial de departamentos de Honduras
 const DEPARTAMENTOS_HN = [

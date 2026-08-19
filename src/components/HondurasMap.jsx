@@ -1,5 +1,6 @@
 import React from 'react';
 import { FiMapPin } from 'react-icons/fi';
+import { motion } from 'framer-motion';
 
 const HondurasMap = ({ data, onSelectDept, selectedDept }) => {
     // Aquí podrías usar un SVG real de Honduras, pero para este ejemplo 

@@ -4,7 +4,7 @@ import { getInvoices, getInvoicePayments, addPaymentToInvoice, anullInvoice } fr
 import AnimatedPage from '../components/AnimatedPage';
 import { toast } from 'react-toastify';
 import { FiEye, FiPlus, FiXOctagon, FiSearch, FiFileText, FiX, FiCheck, FiDollarSign, FiGift } from 'react-icons/fi';
-import { AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 
 // --- CONFIGURACIÓN DE ESTILOS ---
 const STATUS_STYLES = {
